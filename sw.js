@@ -1,7 +1,7 @@
 // ServiceDesk Service Worker
 // Caches the app shell for full offline use
 
-const CACHE_NAME = 'servicedesk-v4';
+const CACHE_NAME = 'servicedesk-v5';
 
 // App shell — everything needed to run offline
 const PRECACHE = [
@@ -47,19 +47,27 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Only handle GET requests
+  // Only handle GET requests; ignore non-http(s) (chrome-extension etc.)
   if (event.request.method !== 'GET') return;
+  if (!url.protocol.startsWith('http')) return;
+
+  // Skip Supabase API calls — never intercept them
+  if (url.hostname.includes('supabase.co')) return;
 
   // For Google Fonts — network first, fall back to cache
   if (url.hostname.includes('fonts.g')) {
     event.respondWith(
       fetch(event.request)
         .then(res => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+          }
           return res;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(event.request)
+          .then(cached => cached || new Response('', { status: 503 }))
+        )
     );
     return;
   }
@@ -69,17 +77,20 @@ self.addEventListener('fetch', event => {
     caches.match(event.request).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(res => {
-        // Cache same-origin responses
-        if (url.origin === self.location.origin && res.status === 200) {
+        // Only cache valid same-origin responses
+        if (res.ok && url.origin === self.location.origin) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
         }
         return res;
       }).catch(() => {
-        // Offline fallback — serve index.html for navigation requests
+        // Offline fallback
         if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
+          return caches.match('./index.html')
+            .then(cached => cached || new Response('Offline', { status: 503 }));
         }
+        // For assets (images etc.) return a 503 rather than undefined
+        return new Response('', { status: 503, statusText: 'Offline' });
       });
     })
   );

@@ -306,7 +306,8 @@ const sb = (() => {
 
           const fetchHdrs = { ...hdrs };
           if (_count) fetchHdrs['Prefer'] = 'count=' + _count;
-          if (_single) fetchHdrs['Accept'] = 'application/vnd.pgrst.object+json';
+          // Don't use vnd.pgrst.object+json — causes 406 on some PostgREST versions.
+          // Instead fetch as array and return first item when .single() is used.
 
           const method = _head ? 'HEAD' : 'GET';
           const res = await fetch(url, { method, headers: fetchHdrs });
@@ -314,7 +315,12 @@ const sb = (() => {
           if (!res.ok) { const e = await parseError(res); return resolve({ data: null, error: e }); }
           if (_head) return resolve({ data: null, error: null, count: parseInt(res.headers.get('content-range')?.split('/')[1]) || 0 });
 
-          const data = await res.json();
+          const raw = await res.json();
+          const data = _single ? (Array.isArray(raw) ? (raw[0] ?? null) : raw) : raw;
+          // Mirror PostgREST: single() with no results = error
+          if (_single && data === null) {
+            return resolve({ data: null, error: { message: 'No rows found', code: 'PGRST116', status: 406 } });
+          }
           resolve({ data, error: null });
         } catch(e) { resolve({ data: null, error: e }); }
       },
@@ -460,11 +466,14 @@ let sbReady = false;
 
 function isSchemaError(e){
   // 404 from PostgREST = table not found; code 42P01 = undefined_table
+  // PGRST116 = no rows (not a schema error — table exists, just empty)
   if(!e) return false;
+  if(e.code==='PGRST116') return false; // "no rows" is fine
   const msg = String(e.message||e.details||e.code||'');
   return e.code==='42P01' || e.status===404 || e.statusCode===404 ||
          msg.includes('does not exist') || msg.includes('404') ||
-         msg.includes('relation') || msg.includes('PGRST');
+         msg.includes('relation') ||
+         (msg.includes('PGRST') && e.code!=='PGRST116');
 }
 
 function showSchemaWarning(){
@@ -871,11 +880,11 @@ function openClientModal(id=null){
   const all=Cache.get('clients');
   const c=id?all.find(cl=>cl.id===id):{};
   showModal(`<div class="modal-title">${id?'Edit Client':'New Client'}</div>
-    <div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" id="c_name" value="${esc(c.name||'')}" placeholder="John Brown" /></div>
-    <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="c_phone" value="${esc(c.phone||'')}" placeholder="+1 876 555 0000" /></div>
-    <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="c_email" type="email" value="${esc(c.email||'')}" /></div>
-    <div class="form-group"><label class="form-label">Address</label><input class="form-input" id="c_address" value="${esc(c.address||'')}" /></div>
-    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="c_notes">${esc(c.notes||'')}</textarea></div>
+    <div class="form-group"><label class="form-label" for="c_name">Full Name *</label><input class="form-input" id="c_name" value="${esc(c.name||'')}" placeholder="John Brown" /></div>
+    <div class="form-group"><label class="form-label" for="c_phone">Phone</label><input class="form-input" id="c_phone" value="${esc(c.phone||'')}" placeholder="+1 876 555 0000" /></div>
+    <div class="form-group"><label class="form-label" for="c_email">Email</label><input class="form-input" id="c_email" type="email" value="${esc(c.email||'')}" /></div>
+    <div class="form-group"><label class="form-label" for="c_address">Address</label><input class="form-input" id="c_address" value="${esc(c.address||'')}" /></div>
+    <div class="form-group"><label class="form-label" for="c_notes">Notes</label><textarea class="form-textarea" id="c_notes">${esc(c.notes||'')}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveClient()">${id?'Save':'Add Client'}</button>
       ${id&&!c.archived?`<button class="btn btn-secondary btn-sm" onclick="archiveClient('${id}')">📦 Archive</button>`:''}
@@ -977,14 +986,14 @@ function openJobModal(id=null,prefillClientId=null){
   const clients=Cache.get('clients').filter(c=>!c.archived);
   const opts=clients.map(c=>`<option value="${c.id}" ${(j.client_id||prefillClientId)===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
   showModal(`<div class="modal-title">${id?'Edit Job':'New Job'}</div>
-    <div class="form-group"><label class="form-label">Description *</label><input class="form-input" id="j_desc" value="${esc(j.description||'')}" placeholder="e.g. Fix leaking kitchen pipe" /></div>
-    <div class="form-group"><label class="form-label">Client</label><select class="form-select" id="j_client"><option value="">-- No client --</option>${opts}</select></div>
+    <div class="form-group"><label class="form-label" for="j_desc">Description *</label><input class="form-input" id="j_desc" value="${esc(j.description||'')}" placeholder="e.g. Fix leaking kitchen pipe" /></div>
+    <div class="form-group"><label class="form-label" for="j_client">Client</label><select class="form-select" id="j_client"><option value="">-- No client --</option>${opts}</select></div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Date *</label><input class="form-input" id="j_date" type="date" value="${j.date||today()}" /></div>
-      <div class="form-group"><label class="form-label">Time</label><input class="form-input" id="j_time" type="time" value="${j.time||''}" /></div>
+      <div class="form-group"><label class="form-label" for="j_date">Date *</label><input class="form-input" id="j_date" type="date" value="${j.date||today()}" /></div>
+      <div class="form-group"><label class="form-label" for="j_time">Time</label><input class="form-input" id="j_time" type="time" value="${j.time||''}" /></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Status</label>
+      <div class="form-group"><label class="form-label" for="j_status">Status</label>
         <select class="form-select" id="j_status">
           <option ${!j.status||j.status==='Pending'?'selected':''}>Pending</option>
           <option ${j.status==='In Progress'?'selected':''}>In Progress</option>
@@ -992,10 +1001,10 @@ function openJobModal(id=null,prefillClientId=null){
           <option ${j.status==='Cancelled'?'selected':''}>Cancelled</option>
         </select>
       </div>
-      <div class="form-group"><label class="form-label">Job Cost</label><input class="form-input" id="j_cost" type="number" value="${j.cost||''}" placeholder="0.00" /></div>
+      <div class="form-group"><label class="form-label" for="j_cost">Job Cost</label><input class="form-input" id="j_cost" type="number" value="${j.cost||''}" placeholder="0.00" /></div>
     </div>
-    <div class="form-group"><label class="form-label">Notes / Work Done</label><textarea class="form-textarea" id="j_notes">${esc(j.notes||'')}</textarea></div>
-    <div class="form-group"><label class="form-label">Recurring</label>
+    <div class="form-group"><label class="form-label" for="j_notes">Notes / Work Done</label><textarea class="form-textarea" id="j_notes">${esc(j.notes||'')}</textarea></div>
+    <div class="form-group"><label class="form-label" for="j_recur">Recurring</label>
       <select class="form-select" id="j_recur">
         <option value="" ${!j.recur?'selected':''}>None</option>
         <option value="weekly" ${j.recur==='weekly'?'selected':''}>Weekly</option>
@@ -1129,12 +1138,12 @@ function openInvoiceModal(id=null,prefillClientId=''){
   const nextNum=id?inv.inv_number:String((invs.reduce((m,i)=>Math.max(m,parseInt(i.inv_number)||0),0)+1)).padStart(4,'0');
   showModal(`<div class="modal-title">${id?'Edit Invoice':'New Invoice'}</div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Invoice #</label><input class="form-input" id="inv_num" value="${esc(inv.inv_number||nextNum)}" /></div>
-      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="inv_date" type="date" value="${inv.date||today()}" /></div>
+      <div class="form-group"><label class="form-label" for="inv_num">Invoice #</label><input class="form-input" id="inv_num" value="${esc(inv.inv_number||nextNum)}" /></div>
+      <div class="form-group"><label class="form-label" for="inv_date">Date</label><input class="form-input" id="inv_date" type="date" value="${inv.date||today()}" /></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Due Date</label><input class="form-input" id="inv_due" type="date" value="${inv.due_date||addDays(today(),14)}" /></div>
-      <div class="form-group"><label class="form-label">Status</label>
+      <div class="form-group"><label class="form-label" for="inv_due">Due Date</label><input class="form-input" id="inv_due" type="date" value="${inv.due_date||addDays(today(),14)}" /></div>
+      <div class="form-group"><label class="form-label" for="inv_status">Status</label>
         <select class="form-select" id="inv_status">
           <option ${!inv.status||inv.status==='Unpaid'?'selected':''}>Unpaid</option>
           <option ${inv.status==='Partial'?'selected':''}>Partial</option>
@@ -1142,14 +1151,14 @@ function openInvoiceModal(id=null,prefillClientId=''){
         </select>
       </div>
     </div>
-    <div class="form-group"><label class="form-label">Client *</label><select class="form-select" id="inv_client"><option value="">-- Select client --</option>${opts}</select></div>
-    <div class="form-group"><label class="form-label">Line Items</label>
+    <div class="form-group"><label class="form-label" for="inv_client">Client *</label><select class="form-select" id="inv_client"><option value="">-- Select client --</option>${opts}</select></div>
+    <div class="form-group"><label class="form-label" for="lineItems">Line Items</label>
       <div id="lineItems">${renderLines()}</div>
       <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="addLine()">+ Add Item</button>
       <div style="margin-top:10px;font-size:14px;font-weight:600;color:var(--accent)">Total: <span id="invTotal">${fmt(calcTotal())}</span></div>
     </div>
-    <div class="form-group"><label class="form-label">Amount Paid</label><input class="form-input" id="inv_paid" type="number" value="${inv.paid||0}" /></div>
-    <div class="form-group"><label class="form-label" id="inv_notes_label">Payment Instructions / Notes</label><textarea class="form-textarea" id="inv_notes">${esc(inv.notes||DB.getBiz().payment||'')}</textarea></div>
+    <div class="form-group"><label class="form-label" for="inv_paid">Amount Paid</label><input class="form-input" id="inv_paid" type="number" value="${inv.paid||0}" /></div>
+    <div class="form-group"><label class="form-label" id="inv_notes_label" for="inv_notes">Payment Instructions / Notes</label><textarea class="form-textarea" id="inv_notes">${esc(inv.notes||DB.getBiz().payment||'')}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveInvoice()">${id?'Save':'Create Invoice'}</button>
       ${id?`<button class="btn btn-danger btn-sm" onclick="delInvoice('${id}')">Delete</button>`:''}
@@ -1262,17 +1271,17 @@ function openExpenseModal(id=null){
   const e=id?exps.find(ex=>ex.id===id):{};
   const cats=['Fuel','Parts','Tools','Labour','Rent','Utilities','Marketing','Insurance','Other'];
   showModal(`<div class="modal-title">${id?'Edit Expense':'New Expense'}</div>
-    <div class="form-group"><label class="form-label">Description *</label><input class="form-input" id="e_desc" value="${esc(e.description||'')}" placeholder="e.g. Fuel for van" /></div>
+    <div class="form-group"><label class="form-label" for="e_desc">Description *</label><input class="form-input" id="e_desc" value="${esc(e.description||'')}" placeholder="e.g. Fuel for van" /></div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Amount *</label><input class="form-input" id="e_amount" type="number" value="${e.amount||''}" placeholder="0.00" /></div>
-      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="e_date" type="date" value="${e.date||today()}" /></div>
+      <div class="form-group"><label class="form-label" for="e_amount">Amount *</label><input class="form-input" id="e_amount" type="number" value="${e.amount||''}" placeholder="0.00" /></div>
+      <div class="form-group"><label class="form-label" for="e_date">Date</label><input class="form-input" id="e_date" type="date" value="${e.date||today()}" /></div>
     </div>
-    <div class="form-group"><label class="form-label">Category</label>
+    <div class="form-group"><label class="form-label" for="e_cat">Category</label>
       <select class="form-select" id="e_cat">
         ${cats.map(c=>`<option ${e.category===c?'selected':''}>${c}</option>`).join('')}
       </select>
     </div>
-    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="e_notes">${esc(e.notes||'')}</textarea></div>
+    <div class="form-group"><label class="form-label" for="e_notes">Notes</label><textarea class="form-textarea" id="e_notes">${esc(e.notes||'')}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveExpense()">${id?'Save':'Add Expense'}</button>
       ${id?`<button class="btn btn-danger btn-sm" onclick="delExpense('${id}')">Delete</button>`:''}
@@ -1368,10 +1377,10 @@ async function renderTeam(){
 function openCreateMemberModal(isFirstSetup=false){
   showModal(`<div class="modal-title">${isFirstSetup?'⚙ Set Up Your Team':'Add Team Member'}</div>
     ${isFirstSetup?`<div class="alert alert-info" style="margin-bottom:12px">This is the first account — they will be an <strong>admin</strong>.</div>`:''}
-    <div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" id="tm_name" placeholder="e.g. Joshua" /></div>
-    <div class="form-group"><label class="form-label">4-Digit PIN *</label><input class="form-input" id="tm_pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
-    <div class="form-group"><label class="form-label">Confirm PIN *</label><input class="form-input" id="tm_pin2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
-    ${!isFirstSetup?`<div class="form-group"><label class="form-label">Role</label>
+    <div class="form-group"><label class="form-label" for="tm_name">Full Name *</label><input class="form-input" id="tm_name" placeholder="e.g. Joshua" /></div>
+    <div class="form-group"><label class="form-label" for="tm_pin">4-Digit PIN *</label><input class="form-input" id="tm_pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    <div class="form-group"><label class="form-label" for="tm_pin2">Confirm PIN *</label><input class="form-input" id="tm_pin2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    ${!isFirstSetup?`<div class="form-group"><label class="form-label" for="tm_role">Role</label>
       <select class="form-select" id="tm_role">
         <option value="member">Member</option>
         <option value="admin">Admin</option>
@@ -1425,8 +1434,8 @@ function openEditMemberModal(id){
   const members=Cache.get('team_members');
   const m=members.find(mb=>mb.id===id);if(!m)return;
   showModal(`<div class="modal-title">Edit PIN — ${esc(m.name)}</div>
-    <div class="form-group"><label class="form-label">New PIN (4 digits) *</label><input class="form-input" id="tm_newpin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
-    <div class="form-group"><label class="form-label">Confirm PIN *</label><input class="form-input" id="tm_newpin2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    <div class="form-group"><label class="form-label" for="tm_newpin">New PIN (4 digits) *</label><input class="form-input" id="tm_newpin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    <div class="form-group"><label class="form-label" for="tm_newpin2">Confirm PIN *</label><input class="form-input" id="tm_newpin2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="doUpdatePin('${id}')">Update PIN</button>
       <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -1465,16 +1474,16 @@ function renderSettings(){
   return`<div class="page-header"><div class="page-title">Settings</div><div class="page-sub">Business & Sync</div></div>
   <div class="card">
     <div class="card-title">Business Details</div>
-    <div class="form-group"><label class="form-label">Business Name</label><input class="form-input" id="biz_name" value="${esc(biz.name||'')}" placeholder="My Plumbing Co." /></div>
-    <div class="form-group"><label class="form-label">Owner Name</label><input class="form-input" id="biz_owner" value="${esc(biz.owner||'')}" /></div>
+    <div class="form-group"><label class="form-label" for="biz_name">Business Name</label><input class="form-input" id="biz_name" value="${esc(biz.name||'')}" placeholder="My Plumbing Co." /></div>
+    <div class="form-group"><label class="form-label" for="biz_owner">Owner Name</label><input class="form-input" id="biz_owner" value="${esc(biz.owner||'')}" /></div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="biz_phone" value="${esc(biz.phone||'')}" /></div>
-      <div class="form-group"><label class="form-label">WhatsApp #</label><input class="form-input" id="biz_wa" value="${esc(biz.wa||'')}" placeholder="+18765550000" /></div>
+      <div class="form-group"><label class="form-label" for="biz_phone">Phone</label><input class="form-input" id="biz_phone" value="${esc(biz.phone||'')}" /></div>
+      <div class="form-group"><label class="form-label" for="biz_wa">WhatsApp #</label><input class="form-input" id="biz_wa" value="${esc(biz.wa||'')}" placeholder="+18765550000" /></div>
     </div>
-    <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="biz_email" value="${esc(biz.email||'')}" /></div>
-    <div class="form-group"><label class="form-label">Address</label><input class="form-input" id="biz_address" value="${esc(biz.address||'')}" /></div>
-    <div class="form-group"><label class="form-label">Currency Symbol</label><input class="form-input" id="biz_currency" value="${esc(biz.currency||'JMD $')}" placeholder="JMD $" /></div>
-    <div class="form-group"><label class="form-label">Default Payment Instructions</label><textarea class="form-textarea" id="biz_payment">${esc(biz.payment||'')}</textarea></div>
+    <div class="form-group"><label class="form-label" for="biz_email">Email</label><input class="form-input" id="biz_email" value="${esc(biz.email||'')}" /></div>
+    <div class="form-group"><label class="form-label" for="biz_address">Address</label><input class="form-input" id="biz_address" value="${esc(biz.address||'')}" /></div>
+    <div class="form-group"><label class="form-label" for="biz_currency">Currency Symbol</label><input class="form-input" id="biz_currency" value="${esc(biz.currency||'JMD $')}" placeholder="JMD $" /></div>
+    <div class="form-group"><label class="form-label" for="biz_payment">Default Payment Instructions</label><textarea class="form-textarea" id="biz_payment">${esc(biz.payment||'')}</textarea></div>
     <button class="btn btn-primary btn-full" onclick="saveBiz()">Save Business Profile</button>
   </div>
   <div class="card">
