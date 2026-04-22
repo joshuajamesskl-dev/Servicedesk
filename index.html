@@ -11,9 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="ServiceDesk" />
 <link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="favicon.ico" sizes="any" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Supabase loaded inline — no CDN dependency -->
 <style>
 :root{
   --bg:#0d0f12;--surface:#161a20;--card:#1e242d;--border:#2a3140;
@@ -239,12 +240,158 @@ main{flex:1;padding:16px 16px 90px;max-width:600px;margin:0 auto;width:100%;}
 
 <script>
 // ═══════════════════════════════════════════════
-//  SUPABASE INIT
+//  SUPABASE INIT — inline client (no CDN needed)
+//  Avoids tracking-prevention blocks in Edge/Safari
 // ═══════════════════════════════════════════════
 const SUPA_URL = 'https://qtoniyyopfbydzvzcdtz.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF0b25peXlvcGZieWR6dnpjZHR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NzMzMDcsImV4cCI6MjA5MjQ0OTMwN30.pd_TL1DzdxE8zThpnIyWKSG2zeMqrOZHrFm-VN9GEtQ';
-const { createClient } = supabase;
-const sb = createClient(SUPA_URL, SUPA_KEY);
+
+// Minimal Supabase REST client — covers all operations this app uses
+const sb = (() => {
+  const base = SUPA_URL + '/rest/v1';
+  const hdrs = {
+    'apikey': SUPA_KEY,
+    'Authorization': 'Bearer ' + SUPA_KEY,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  };
+
+  function buildQuery(params) {
+    return Object.entries(params)
+      .map(([k,v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
+      .join('&');
+  }
+
+  // Parse PostgREST errors into a consistent shape
+  async function parseError(res) {
+    let body = {};
+    try { body = await res.json(); } catch {}
+    const err = new Error(body.message || body.hint || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.statusCode = res.status;
+    err.code = body.code || '';
+    err.details = body.details || '';
+    return err;
+  }
+
+  // Query builder returned by .from(table)
+  function query(table) {
+    let _filters = [];
+    let _order = null;
+    let _single = false;
+    let _head = false;
+    let _count = null;
+    let _select = '*';
+
+    const q = {
+      select(cols, opts = {}) {
+        _select = cols || '*';
+        if (opts.count) _count = opts.count;
+        if (opts.head) _head = true;
+        return q;
+      },
+      order(col, opts = {}) {
+        _order = col + '.' + (opts.ascending === false ? 'desc' : 'asc');
+        return q;
+      },
+      eq(col, val) { _filters.push(col + '=eq.' + val); return q; },
+      neq(col, val) { _filters.push(col + '=neq.' + val); return q; },
+      single() { _single = true; return q; },
+
+      async then(resolve, reject) {
+        try {
+          let url = base + '/' + table + '?select=' + encodeURIComponent(_select);
+          _filters.forEach(f => { url += '&' + f; });
+          if (_order) url += '&order=' + encodeURIComponent(_order);
+
+          const fetchHdrs = { ...hdrs };
+          if (_count) fetchHdrs['Prefer'] = 'count=' + _count;
+          if (_single) fetchHdrs['Accept'] = 'application/vnd.pgrst.object+json';
+
+          const method = _head ? 'HEAD' : 'GET';
+          const res = await fetch(url, { method, headers: fetchHdrs });
+
+          if (!res.ok) { const e = await parseError(res); return resolve({ data: null, error: e }); }
+          if (_head) return resolve({ data: null, error: null, count: parseInt(res.headers.get('content-range')?.split('/')[1]) || 0 });
+
+          const data = await res.json();
+          resolve({ data, error: null });
+        } catch(e) { resolve({ data: null, error: e }); }
+      },
+
+      // INSERT
+      async insert(row) {
+        try {
+          const res = await fetch(base + '/' + table, {
+            method: 'POST', headers: hdrs,
+            body: JSON.stringify(Array.isArray(row) ? row : [row])
+          });
+          if (!res.ok) { const e = await parseError(res); return { data: null, error: e }; }
+          const data = await res.json();
+          return { data, error: null };
+        } catch(e) { return { data: null, error: e }; }
+      },
+
+      // UPDATE (must chain .eq() first)
+      update(patch) {
+        const filtersSnap = [..._filters];
+        return {
+          eq(col, val) { filtersSnap.push(col + '=eq.' + val); return this; },
+          async then(resolve) {
+            try {
+              let url = base + '/' + table + '?' + filtersSnap.join('&');
+              const res = await fetch(url, { method: 'PATCH', headers: hdrs, body: JSON.stringify(patch) });
+              if (!res.ok) { const e = await parseError(res); return resolve({ data: null, error: e }); }
+              const data = await res.json();
+              resolve({ data, error: null });
+            } catch(e) { resolve({ data: null, error: e }); }
+          }
+        };
+      },
+
+      // UPSERT
+      upsert(row, opts = {}) {
+        return {
+          select() { return this; },
+          single() { return this; },
+          async then(resolve) {
+            try {
+              const conflict = opts.onConflict ? opts.onConflict : 'id';
+              const h = { ...hdrs, 'Prefer': 'resolution=merge-duplicates,return=representation' };
+              const res = await fetch(base + '/' + table + '?on_conflict=' + conflict, {
+                method: 'POST', headers: h,
+                body: JSON.stringify(Array.isArray(row) ? row : [row])
+              });
+              if (!res.ok) { const e = await parseError(res); return resolve({ data: null, error: e }); }
+              const data = await res.json();
+              resolve({ data: Array.isArray(data) ? data[0] : data, error: null });
+            } catch(e) { resolve({ data: null, error: e }); }
+          }
+        };
+      },
+
+      // DELETE
+      delete() {
+        const filtersSnap = [..._filters];
+        return {
+          eq(col, val) { filtersSnap.push(col + '=eq.' + val); return this; },
+          neq(col, val) { filtersSnap.push(col + '=neq.' + val); return this; },
+          async then(resolve) {
+            try {
+              let url = base + '/' + table + '?' + filtersSnap.join('&');
+              const res = await fetch(url, { method: 'DELETE', headers: { ...hdrs, 'Prefer': 'return=minimal' } });
+              if (!res.ok) { const e = await parseError(res); return resolve({ data: null, error: e }); }
+              resolve({ data: null, error: null });
+            } catch(e) { resolve({ data: null, error: e }); }
+          }
+        };
+      }
+    };
+    return q;
+  }
+
+  return { from: (table) => query(table) };
+})();
 
 // ═══════════════════════════════════════════════
 //  SECURITY — XSS sanitiser
@@ -1546,7 +1693,7 @@ window.addEventListener('appinstalled',()=>{_deferredInstall=null;document.getEl
 function refreshDebug(){
   try{
     const members=JSON.parse(localStorage.getItem('sd_team_members'))||[];
-    const hasSB=typeof supabase!=='undefined';
+    const hasSB=typeof sb!=='undefined' && typeof sb.from==='function';
     const setupBtn=!!document.getElementById('lockSetupMsg')?.querySelector('button');
     const modalOpen=!!document.getElementById('modal-overlay');
     const lines=[

@@ -1,7 +1,7 @@
 // ServiceDesk Service Worker
 // Caches the app shell for full offline use
 
-const CACHE_NAME = 'servicedesk-v3';
+const CACHE_NAME = 'servicedesk-v4';
 
 // App shell — everything needed to run offline
 const PRECACHE = [
@@ -10,6 +10,7 @@ const PRECACHE = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  './favicon.ico',
   // Google Fonts — cached on first load, served offline after
   'https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap'
 ];
