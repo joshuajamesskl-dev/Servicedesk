@@ -38,7 +38,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .pin-key:active{background:var(--accent);color:#0d0f12;transform:scale(.95);}
 .pin-key.del{font-size:16px;color:var(--muted);}
 .lock-error{color:var(--danger);font-size:13px;margin-top:16px;min-height:20px;text-align:center;}
-.lock-setup-msg{color:var(--muted);font-size:11px;margin-top:10px;text-align:center;}
 
 /* SYNC STATUS */
 .sync-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;background:var(--muted);}
@@ -190,17 +189,10 @@ main{flex:1;padding:16px 16px 90px;max-width:600px;margin:0 auto;width:100%;}
     <button class="pin-key del" onclick="pinDel()">⌫</button>
   </div>
   <div class="lock-error" id="lockError"></div>
-  <div class="lock-setup-msg" id="lockSetupMsg"></div>
   <div id="syncStatus" style="margin-top:16px;font-size:12px;color:var(--muted);text-align:center;display:flex;align-items:center;gap:4px;justify-content:center">
     <span class="sync-dot" id="syncDot"></span><span id="syncLabel">Connecting…</span>
   </div>
-  <!-- DEBUG PANEL — remove after fixing -->
-  <div id="debugPanel" style="margin-top:20px;background:#0a0c0e;border:1px solid #f0c040;border-radius:10px;padding:12px 14px;width:100%;max-width:300px;font-size:11px;font-family:monospace;">
-    <div style="color:#f0c040;font-weight:700;margin-bottom:8px;">🔍 Debug Panel</div>
-    <div id="dbg" style="color:#a0aec0;line-height:1.9;">Loading…</div>
-    <button onclick="refreshDebug()" style="margin-top:10px;background:#1e242d;border:1px solid #2a3140;color:#e8edf5;border-radius:6px;padding:5px 12px;font-size:11px;cursor:pointer;width:100%;">↻ Refresh</button>
-    <button onclick="clearAndReset()" style="margin-top:6px;background:#7f1d1d;border:1px solid #ef4444;color:#fca5a5;border-radius:6px;padding:5px 12px;font-size:11px;cursor:pointer;width:100%;">🗑 Clear local data &amp; reload</button>
-  </div>
+
 </div>
 
 <!-- MAIN APP -->
@@ -636,12 +628,10 @@ async function hPin(p){
 }
 
 async function initLock(){
-  // Check connectivity AND whether Supabase tables exist
   try{
     const {error}=await sb.from('team_members').select('count',{count:'exact',head:true});
     if(error){
       if(isSchemaError(error)){
-        // Supabase reachable but tables not created yet
         isOnline=true; sbReady=false;
         setSyncStatus('offline','Setup needed');
         showSchemaWarning();
@@ -654,20 +644,19 @@ async function initLock(){
       setSyncStatus('online','Live');
     }
   }catch(e){
-    // Network unreachable
     isOnline=navigator.onLine; sbReady=false;
     setSyncStatus('offline', isOnline?'Unreachable':'Offline');
   }
 
-  // Load biz settings from cloud
   if(isOnline && sbReady) await DB.loadBizFromCloud();
 
-  // Check if any team members exist (local cache or cloud)
+  // No team members = skip lock screen, go straight into app as Owner/admin
   const members=await getTeamMembers();
   if(!members.length){
-    // First run — setup mode
-    document.getElementById('lockMsg').innerHTML='Welcome to ServiceDesk!<br><span style="font-size:11px;opacity:.6">Create your admin account below</span>';
-    document.getElementById('lockSetupMsg').innerHTML='<button onclick="openCreateMemberModal(true)" style="background:var(--accent);color:#0d0f12;border:none;border-radius:8px;padding:10px 20px;font-weight:700;font-size:14px;cursor:pointer;margin-top:10px">⚙ Set Up Team</button>';
+    currentUser={id:'default',name:'Owner',role:'admin'};
+    document.getElementById('lockScreen').style.display='none';
+    document.getElementById('mainApp').classList.remove('hidden');
+    navigate('dashboard');
     return;
   }
 
@@ -688,9 +677,7 @@ async function getTeamMembers(){
 }
 
 function pinKey(k){
-  // Don't accept input if setup modal is open or no members exist yet
   if(document.getElementById('modal-overlay'))return;
-  if(document.getElementById('lockSetupMsg')?.querySelector('button'))return;
   if(pinBuf.length>=4)return;
   pinBuf+=k;
   document.getElementById('d'+(pinBuf.length-1)).classList.add('filled');
@@ -704,12 +691,6 @@ function pinDel(){
 
 async function checkPin(){
   const members=await getTeamMembers();
-  if(!members.length){
-    // Still in setup mode — ignore PIN input
-    pinBuf='';
-    document.querySelectorAll('.pin-dot').forEach(d=>d.classList.remove('filled'));
-    return;
-  }
   const h=await hPin(pinBuf);
   const match=members.find(m=>m.pin_hash===h);
   if(match){
@@ -1374,37 +1355,33 @@ async function renderTeam(){
     <button class="btn btn-primary btn-full" onclick="openCreateMemberModal()">+ Add Member</button>
   </div>`:`<div class="alert alert-info" style="margin-top:10px">Only admins can add or remove team members.</div>`}`;
 }
-function openCreateMemberModal(isFirstSetup=false){
-  showModal(`<div class="modal-title">${isFirstSetup?'⚙ Set Up Your Team':'Add Team Member'}</div>
-    ${isFirstSetup?`<div class="alert alert-info" style="margin-bottom:12px">This is the first account — they will be an <strong>admin</strong>.</div>`:''}
+function openCreateMemberModal(){
+  showModal(`<div class="modal-title">Add Team Member</div>
     <div class="form-group"><label class="form-label" for="tm_name">Full Name *</label><input class="form-input" id="tm_name" placeholder="e.g. Joshua" /></div>
     <div class="form-group"><label class="form-label" for="tm_pin">4-Digit PIN *</label><input class="form-input" id="tm_pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
     <div class="form-group"><label class="form-label" for="tm_pin2">Confirm PIN *</label><input class="form-input" id="tm_pin2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
-    ${!isFirstSetup?`<div class="form-group"><label class="form-label" for="tm_role">Role</label>
+    <div class="form-group"><label class="form-label" for="tm_role">Role</label>
       <select class="form-select" id="tm_role">
         <option value="member">Member</option>
         <option value="admin">Admin</option>
       </select>
-    </div>`:''}
+    </div>
     <div class="modal-actions">
-      <button class="btn btn-primary" onclick="createMember('${isFirstSetup}')">Create Account</button>
-      ${!isFirstSetup?`<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>`:''}
-    </div>`,isFirstSetup===true||isFirstSetup==='true');
+      <button class="btn btn-primary" onclick="createMember()">Create Account</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>`);
 }
-async function createMember(isFirstSetup=false){
+async function createMember(){
   const name=document.getElementById('tm_name').value.trim();
   const pin=document.getElementById('tm_pin').value;
   const pin2=document.getElementById('tm_pin2').value;
   if(!name){alert('Name required.');return;}
   if(!/^\d{4}$/.test(pin)){alert('PIN must be exactly 4 digits.');return;}
   if(pin!==pin2){alert('PINs do not match.');return;}
-  const setup=(isFirstSetup===true||isFirstSetup==='true');
-  const role=setup?'admin':(document.getElementById('tm_role')?.value||'member');
+  const role=document.getElementById('tm_role')?.value||'member';
   const pinHash=await hPin(pin);
   const obj={id:uid(),name,role,pin_hash:pinHash,created_at:new Date().toISOString()};
-  // Always save to local cache first so login works even if Supabase fails
   const members=Cache.get('team_members');members.push(obj);Cache.set('team_members',members);
-  // Try to save to Supabase but don't block on failure
   if(isOnline && sbReady){
     setSyncStatus('syncing','Saving…');
     try{
@@ -1417,18 +1394,9 @@ async function createMember(isFirstSetup=false){
       syncQueue.push({table:'team_members',row:obj});
     }
   }
-  // Close modal and log in
   closeModal();
-  if(setup){
-    currentUser={id:obj.id,name:obj.name,role:obj.role};
-    document.getElementById('lockScreen').style.display='none';
-    document.getElementById('mainApp').classList.remove('hidden');
-    navigate('dashboard');
-    toast(`Welcome, ${name}! Set up your business in Settings.`);
-  }else{
-    navigate('team');
-    toast(`${name} added!`);
-  }
+  navigate('team');
+  toast(`${name} added!`);
 }
 function openEditMemberModal(id){
   const members=Cache.get('team_members');
@@ -1697,47 +1665,9 @@ function installPWA(){if(!_deferredInstall)return;_deferredInstall.prompt();_def
 window.addEventListener('appinstalled',()=>{_deferredInstall=null;document.getElementById('installBanner')?.remove();toast('ServiceDesk installed! 🎉');});
 
 // ═══════════════════════════════════════════════
-//  DEBUG HELPERS — remove after fixing
-// ═══════════════════════════════════════════════
-function refreshDebug(){
-  try{
-    const members=JSON.parse(localStorage.getItem('sd_team_members'))||[];
-    const hasSB=typeof sb!=='undefined' && typeof sb.from==='function';
-    const setupBtn=!!document.getElementById('lockSetupMsg')?.querySelector('button');
-    const modalOpen=!!document.getElementById('modal-overlay');
-    const lines=[
-      'Online: '+(isOnline?'✅ yes':'❌ no'),
-      'Supabase loaded: '+(hasSB?'✅ yes':'❌ NO — scripts blocked!'),
-      'Members in cache: '+members.length,
-      members.length?'First member: '+members[0].name+' ('+members[0].role+')':'⚠️ No members saved',
-      members.length?'Has pin_hash: '+(!!members[0].pin_hash?'✅ yes':'❌ MISSING'):'—',
-      'Setup btn visible: '+(setupBtn?'⚠️ yes — pad is blocked':'✅ no'),
-      'Modal open: '+(modalOpen?'⚠️ yes — pad is blocked':'✅ no'),
-      'PIN buf length: '+pinBuf.length,
-      'Queued writes: '+syncQueue.length,
-    ];
-    document.getElementById('dbg').innerHTML=lines.map(l=>'<div>'+l+'</div>').join('');
-  }catch(e){
-    document.getElementById('dbg').innerHTML='<div style="color:#ef4444">JS Error: '+e.message+'</div>';
-  }
-}
-function clearAndReset(){
-  if(!confirm('Clear ALL local data and reload? You will need to set up again.'))return;
-  localStorage.clear();
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.getRegistrations().then(regs=>{
-      regs.forEach(r=>r.unregister());
-      caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))).then(()=>location.reload(true));
-    });
-  }else{location.reload(true);}
-}
-
-// ═══════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════
 initLock();
-// Auto-refresh debug panel after init
-setTimeout(refreshDebug, 1500);
 </script>
 </body>
 </html>
