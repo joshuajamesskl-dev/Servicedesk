@@ -241,8 +241,8 @@ main{flex:1;padding:16px 16px 90px;max-width:600px;margin:0 auto;width:100%;}
 // ═══════════════════════════════════════════════
 //  SUPABASE INIT
 // ═══════════════════════════════════════════════
-const SUPA_URL = 'https://fbuhilutctfmgjgfczjd.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidWhpbHV0Y3RmbWdqZ2ZjempkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NzAwMDYsImV4cCI6MjA5MjQ0NjAwNn0.0weu_8CofFJXXj1DdVGGBh4KEqWw9YBNqzxM6Ad69i0';
+const SUPA_URL = 'https://qtoniyyopfbydzvzcdtz.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF0b25peXlvcGZieWR6dnpjZHR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NzMzMDcsImV4cCI6MjA5MjQ0OTMwN30.pd_TL1DzdxE8zThpnIyWKSG2zeMqrOZHrFm-VN9GEtQ';
 const { createClient } = supabase;
 const sb = createClient(SUPA_URL, SUPA_KEY);
 
@@ -280,7 +280,18 @@ function setSyncStatus(state,label){
   if(sl)sl.textContent=label;
   if(nl)nl.textContent=label;
 }
-window.addEventListener('online',()=>{isOnline=true;setSyncStatus('online','Live');flushQueue();});
+window.addEventListener('online',async()=>{
+  isOnline=true;
+  // Re-check if schema is ready when reconnecting
+  if(!sbReady){
+    try{
+      const {error}=await sb.from('team_members').select('count',{count:'exact',head:true});
+      if(!error){sbReady=true;document.getElementById('schemaWarn')?.remove();}
+    }catch{}
+  }
+  setSyncStatus(sbReady?'online':'offline',sbReady?'Live':'Setup needed');
+  if(sbReady)flushQueue();
+});
 window.addEventListener('offline',()=>{isOnline=false;setSyncStatus('offline','Offline');});
 
 // ═══════════════════════════════════════════════
@@ -296,22 +307,51 @@ const Cache={
 // ═══════════════════════════════════════════════
 //  DB — Supabase + local cache hybrid
 // ═══════════════════════════════════════════════
+
+// sbReady = false means tables don't exist yet (SQL schema not run)
+let sbReady = false;
+
+function isSchemaError(e){
+  // 404 from PostgREST = table not found; code 42P01 = undefined_table
+  if(!e) return false;
+  const msg = String(e.message||e.details||e.code||'');
+  return e.code==='42P01' || e.status===404 || e.statusCode===404 ||
+         msg.includes('does not exist') || msg.includes('404') ||
+         msg.includes('relation') || msg.includes('PGRST');
+}
+
+function showSchemaWarning(){
+  if(document.getElementById('schemaWarn')) return;
+  const w = document.createElement('div');
+  w.id = 'schemaWarn';
+  w.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:500;background:#7f1d1d;border-bottom:2px solid #ef4444;color:#fca5a5;padding:10px 16px;font-size:12px;text-align:center;line-height:1.5;';
+  w.innerHTML = '⚠️ <strong>Supabase tables not set up.</strong> Open your <a href="https://supabase.com/dashboard" target="_blank" style="color:#fbbf24;text-decoration:underline">Supabase dashboard → SQL Editor</a> and run <strong>supabase-setup.sql</strong>. App running in local-only mode. <button onclick="this.parentElement.remove()" style="margin-left:10px;background:none;border:1px solid #fca5a5;color:#fca5a5;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px">✕</button>';
+  document.body.prepend(w);
+}
+
 const DB={
   async get(table){
-    if(!isOnline){return Cache.get(table);}
+    if(!isOnline || !sbReady){return Cache.get(table);}
     try{
       const {data,error}=await sb.from(table).select('*').order('created_at',{ascending:false});
       if(error)throw error;
       Cache.set(table,data);
       return data;
     }catch(e){
-      console.warn('DB.get fallback:',e);
+      if(isSchemaError(e)){
+        sbReady=false;
+        showSchemaWarning();
+      }else{
+        console.warn('DB.get fallback:',e.message||e);
+      }
       return Cache.get(table);
     }
   },
   async set(table,row){
-    // Upsert single row
-    if(!isOnline){syncQueue.push({table,row});return row;}
+    // Always update local cache immediately
+    const cached=Cache.get(table).filter(r=>r.id!==row.id);
+    Cache.set(table,[row,...cached]);
+    if(!isOnline || !sbReady){syncQueue.push({table,row});return row;}
     setSyncStatus('syncing','Saving…');
     try{
       const {data,error}=await sb.from(table).upsert(row,{onConflict:'id'}).select().single();
@@ -319,46 +359,55 @@ const DB={
       setSyncStatus('online','Live');
       return data;
     }catch(e){
-      console.warn('DB.set error:',e);
+      if(isSchemaError(e)){sbReady=false;showSchemaWarning();}
+      else console.warn('DB.set error:',e.message||e);
       syncQueue.push({table,row});
       setSyncStatus('offline','Offline');
       return row;
     }
   },
   async delete(table,id){
-    if(!isOnline){
-      // Remove from cache
-      const cached=Cache.get(table).filter(r=>r.id!==id);
-      Cache.set(table,cached);
+    // Always update local cache immediately
+    const cached=Cache.get(table).filter(r=>r.id!==id);
+    Cache.set(table,cached);
+    if(!isOnline || !sbReady){
       syncQueue.push({table,id,op:'delete'});
       return;
     }
     setSyncStatus('syncing','Saving…');
     try{
-      await sb.from(table).delete().eq('id',id);
+      const {error}=await sb.from(table).delete().eq('id',id);
+      if(error)throw error;
       setSyncStatus('online','Live');
     }catch(e){
-      console.warn('DB.delete error:',e);
+      if(isSchemaError(e)){sbReady=false;showSchemaWarning();}
+      else console.warn('DB.delete error:',e.message||e);
       setSyncStatus('offline','Offline');
     }
   },
   getBiz(){return Cache.getBiz();},
   async setBiz(b){
     Cache.setBiz(b);
-    if(!isOnline){syncQueue.push({table:'business_settings',row:{id:'main',...b}});return;}
+    if(!isOnline || !sbReady){syncQueue.push({table:'business_settings',row:{id:'main',...b}});return;}
     setSyncStatus('syncing','Saving…');
     try{
-      await sb.from('business_settings').upsert({id:'main',...b});
+      const {error}=await sb.from('business_settings').upsert({id:'main',...b});
+      if(error)throw error;
       setSyncStatus('online','Live');
     }catch(e){
+      if(isSchemaError(e)){sbReady=false;showSchemaWarning();}
       setSyncStatus('offline','Offline');
     }
   },
   async loadBizFromCloud(){
+    if(!sbReady) return;
     try{
-      const {data}=await sb.from('business_settings').select('*').eq('id','main').single();
+      const {data,error}=await sb.from('business_settings').select('*').eq('id','main').single();
+      if(error)throw error;
       if(data){Cache.setBiz(data);}
-    }catch{}
+    }catch(e){
+      if(isSchemaError(e)){sbReady=false;showSchemaWarning();}
+    }
   }
 };
 
@@ -366,7 +415,7 @@ const DB={
 //  OFFLINE QUEUE FLUSH
 // ═══════════════════════════════════════════════
 async function flushQueue(){
-  if(!syncQueue.length)return;
+  if(!syncQueue.length||!sbReady)return;
   setSyncStatus('syncing','Syncing…');
   const q=[...syncQueue];syncQueue=[];
   for(const item of q){
@@ -431,20 +480,33 @@ async function hPin(p){
 }
 
 async function initLock(){
-  // Check connectivity
+  // Check connectivity AND whether Supabase tables exist
   try{
-    await sb.from('team_members').select('count',{count:'exact',head:true});
-    isOnline=true;
-    setSyncStatus('online','Live');
-  }catch{
-    isOnline=false;
-    setSyncStatus('offline','Offline');
+    const {error}=await sb.from('team_members').select('count',{count:'exact',head:true});
+    if(error){
+      if(isSchemaError(error)){
+        // Supabase reachable but tables not created yet
+        isOnline=true; sbReady=false;
+        setSyncStatus('offline','Setup needed');
+        showSchemaWarning();
+      }else{
+        isOnline=false; sbReady=false;
+        setSyncStatus('offline','Offline');
+      }
+    }else{
+      isOnline=true; sbReady=true;
+      setSyncStatus('online','Live');
+    }
+  }catch(e){
+    // Network unreachable
+    isOnline=navigator.onLine; sbReady=false;
+    setSyncStatus('offline', isOnline?'Unreachable':'Offline');
   }
 
   // Load biz settings from cloud
-  if(isOnline) await DB.loadBizFromCloud();
+  if(isOnline && sbReady) await DB.loadBizFromCloud();
 
-  // Check if any team members exist
+  // Check if any team members exist (local cache or cloud)
   const members=await getTeamMembers();
   if(!members.length){
     // First run — setup mode
@@ -458,11 +520,14 @@ async function initLock(){
 
 async function getTeamMembers(){
   try{
-    if(isOnline){
-      const {data}=await sb.from('team_members').select('*').order('created_at');
+    if(isOnline && sbReady){
+      const {data,error}=await sb.from('team_members').select('*').order('created_at');
+      if(error)throw error;
       if(data){Cache.set('team_members',data);return data;}
     }
-  }catch{}
+  }catch(e){
+    if(isSchemaError(e)){sbReady=false;showSchemaWarning();}
+  }
   return Cache.get('team_members');
 }
 
@@ -1184,14 +1249,14 @@ async function createMember(isFirstSetup=false){
   // Always save to local cache first so login works even if Supabase fails
   const members=Cache.get('team_members');members.push(obj);Cache.set('team_members',members);
   // Try to save to Supabase but don't block on failure
-  if(isOnline){
+  if(isOnline && sbReady){
     setSyncStatus('syncing','Saving…');
     try{
       const {error}=await sb.from('team_members').insert(obj);
       if(error)throw error;
       setSyncStatus('online','Live');
     }catch(e){
-      console.warn('Could not save member to cloud:',e);
+      console.warn('Could not save member to cloud:',e.message||e);
       setSyncStatus('offline','Saved locally');
       syncQueue.push({table:'team_members',row:obj});
     }
@@ -1228,14 +1293,20 @@ async function doUpdatePin(id){
   const pinHash=await hPin(pin);
   const members=Cache.get('team_members');const i=members.findIndex(m=>m.id===id);
   if(i>-1){members[i].pin_hash=pinHash;Cache.set('team_members',members);}
-  try{await sb.from('team_members').update({pin_hash:pinHash}).eq('id',id);}catch(e){console.warn(e);}
+  if(isOnline && sbReady){
+    try{const {error}=await sb.from('team_members').update({pin_hash:pinHash}).eq('id',id);if(error)throw error;}
+    catch(e){console.warn('PIN update cloud error:',e.message||e);}
+  }
   closeModal();navigate('team');toast('PIN updated!');
 }
 async function removeMember(id){
   if(!confirm('Remove this team member? They will no longer be able to log in.'))return;
   const members=Cache.get('team_members').filter(m=>m.id!==id);
   Cache.set('team_members',members);
-  try{await sb.from('team_members').delete().eq('id',id);}catch(e){console.warn(e);}
+  if(isOnline && sbReady){
+    try{const {error}=await sb.from('team_members').delete().eq('id',id);if(error)throw error;}
+    catch(e){console.warn('Remove member cloud error:',e.message||e);}
+  }
   navigate('team');toast('Member removed.');
 }
 
@@ -1293,12 +1364,14 @@ async function saveBiz(){
 }
 async function forceSyncAll(){
   if(!isOnline){toast('No internet connection.','warn');return;}
+  if(!sbReady){toast('Supabase tables not set up yet — run supabase-setup.sql first.','warn');return;}
   setSyncStatus('syncing','Syncing all…');
   toast('Syncing all data…');
   try{
     const tables=['clients','jobs','invoices','expenses'];
     for(const t of tables){
-      const {data}=await sb.from(t).select('*').order('created_at',{ascending:false});
+      const {data,error}=await sb.from(t).select('*').order('created_at',{ascending:false});
+      if(error)throw error;
       if(data)Cache.set(t,data);
     }
     const members=await getTeamMembers();
@@ -1331,7 +1404,7 @@ async function importData(e){
       for(const t of tables){
         if(data[t]&&data[t].length){
           Cache.set(t,data[t]);
-          if(isOnline){
+          if(isOnline && sbReady){
             for(const row of data[t]){
               // Migrate old field names if needed
               if(row.clientId&&!row.client_id)row.client_id=row.clientId;
@@ -1339,7 +1412,7 @@ async function importData(e){
               if(row.dueDate&&!row.due_date)row.due_date=row.dueDate;
               if(row.createdAt&&!row.created_at)row.created_at=row.createdAt;
               if(!row.created_at)row.created_at=new Date().toISOString();
-              await sb.from(t).upsert(row,{onConflict:'id'});
+              try{await sb.from(t).upsert(row,{onConflict:'id'});}catch(e){console.warn('Import upsert error:',e.message||e);}
             }
           }
         }
@@ -1356,7 +1429,7 @@ async function clearAllCloud(){
   const tables=['clients','jobs','invoices','expenses'];
   for(const t of tables){
     Cache.set(t,[]);
-    if(isOnline)try{await sb.from(t).delete().neq('id','__no_match__');}catch{}
+    if(isOnline && sbReady)try{await sb.from(t).delete().neq('id','__no_match__');}catch{}
   }
   toast('All data cleared.','warn');navigate('dashboard');
 }
