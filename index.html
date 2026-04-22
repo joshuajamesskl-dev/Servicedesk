@@ -1,0 +1,1514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>ServiceDesk — Business Manager</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0d0f12" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="ServiceDesk" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#0d0f12;--surface:#161a20;--card:#1e242d;--border:#2a3140;
+  --accent:#f0c040;--accent2:#3b82f6;--danger:#ef4444;
+  --success:#22c55e;--warn:#f97316;--text:#e8edf5;--muted:#6b7894;
+  --radius:12px;--font-display:'Syne',sans-serif;--font-body:'DM Sans',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:15px;}
+#app{min-height:100vh;display:flex;flex-direction:column;}
+
+/* LOCK SCREEN */
+#lockScreen{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;}
+.lock-logo{font-family:var(--font-display);font-size:28px;font-weight:800;color:var(--accent);margin-bottom:8px;}
+.lock-sub{color:var(--muted);font-size:13px;margin-bottom:36px;text-align:center;line-height:1.5;}
+.pin-dots{display:flex;gap:14px;margin-bottom:32px;}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);background:transparent;transition:all .15s;}
+.pin-dot.filled{background:var(--accent);border-color:var(--accent);}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:240px;}
+.pin-key{background:var(--card);border:1px solid var(--border);border-radius:12px;height:60px;font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;user-select:none;}
+.pin-key:active{background:var(--accent);color:#0d0f12;transform:scale(.95);}
+.pin-key.del{font-size:16px;color:var(--muted);}
+.lock-error{color:var(--danger);font-size:13px;margin-top:16px;min-height:20px;text-align:center;}
+.lock-setup-msg{color:var(--muted);font-size:11px;margin-top:10px;text-align:center;}
+
+/* SYNC STATUS */
+.sync-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;background:var(--muted);}
+.sync-dot.online{background:var(--success);}
+.sync-dot.syncing{background:var(--warn);animation:pulse 1s infinite;}
+.sync-dot.offline{background:var(--danger);}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* NAV */
+nav{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:56px;}
+.nav-brand{font-family:var(--font-display);font-size:18px;font-weight:800;color:var(--accent);letter-spacing:-.5px;}
+.nav-actions{display:flex;gap:6px;align-items:center;}
+.nav-btn{background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;font-family:var(--font-body);transition:all .15s;}
+.nav-btn:hover{color:var(--text);border-color:var(--accent);}
+.nav-lock{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px;}
+
+/* TAB BAR */
+.tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--surface);border-top:1px solid var(--border);display:flex;justify-content:space-around;align-items:center;padding:6px 0 max(6px,env(safe-area-inset-bottom));}
+.tab-item{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;cursor:pointer;padding:4px 0;color:var(--muted);font-size:10px;font-weight:500;transition:color .15s;}
+.tab-item.active{color:var(--accent);}
+.tab-icon{font-size:20px;line-height:1;}
+
+main{flex:1;padding:16px 16px 90px;max-width:600px;margin:0 auto;width:100%;}
+.page-header{margin-bottom:20px;}
+.page-title{font-family:var(--font-display);font-size:24px;font-weight:800;color:var(--text);}
+.page-sub{color:var(--muted);font-size:13px;margin-top:2px;}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;}
+.card-title{font-family:var(--font-display);font-weight:700;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
+
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;}
+.stat-value{font-family:var(--font-display);font-size:22px;font-weight:800;line-height:1.2;}
+.stat-label{font-size:11px;color:var(--muted);margin-top:3px;}
+.ca{color:var(--accent);}.cb{color:var(--accent2);}.cg{color:var(--success);}.cr{color:var(--danger);}
+
+.btn{display:inline-flex;align-items:center;gap:6px;border:none;border-radius:8px;padding:10px 16px;font-family:var(--font-body);font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;}
+.btn-primary{background:var(--accent);color:#0d0f12;}
+.btn-primary:hover{background:#f5d060;}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:var(--accent);}
+.btn-danger{background:var(--danger);color:#fff;}
+.btn-sm{padding:6px 12px;font-size:12px;}
+.btn-full{width:100%;justify-content:center;}
+
+.fab{position:fixed;bottom:74px;right:16px;z-index:99;background:var(--accent);color:#0d0f12;border:none;border-radius:50%;width:52px;height:52px;font-size:26px;cursor:pointer;box-shadow:0 4px 20px rgba(240,192,64,.35);display:flex;align-items:center;justify-content:center;transition:transform .15s;}
+.fab:hover{transform:scale(1.05);}
+
+.list-item{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:6px;cursor:pointer;transition:border-color .15s;}
+.list-item:hover{border-color:var(--accent2);}
+.list-item-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px;gap:8px;}
+.list-item-title{font-weight:600;font-size:14px;flex:1;}
+.list-item-sub{font-size:12px;color:var(--muted);margin-top:1px;}
+.list-item-meta{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;}
+.badge-pending{background:rgba(249,115,22,.15);color:var(--warn);}
+.badge-progress{background:rgba(59,130,246,.15);color:var(--accent2);}
+.badge-done{background:rgba(34,197,94,.15);color:var(--success);}
+.badge-cancelled{background:rgba(239,68,68,.15);color:var(--danger);}
+.badge-unpaid{background:rgba(239,68,68,.15);color:var(--danger);}
+.badge-partial{background:rgba(249,115,22,.15);color:var(--warn);}
+.badge-paid{background:rgba(34,197,94,.15);color:var(--success);}
+.badge-overdue{background:rgba(239,68,68,.25);color:var(--danger);border:1px solid var(--danger);}
+.badge-archived{background:rgba(107,120,148,.15);color:var(--muted);}
+
+.modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .15s;}
+.modal{background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);border-radius:20px 20px 0 0;width:100%;max-width:600px;max-height:92vh;overflow-y:auto;padding:20px;padding-bottom:max(20px,env(safe-area-inset-bottom));animation:slideUp .2s;}
+.modal-title{font-family:var(--font-display);font-size:20px;font-weight:800;margin-bottom:16px;}
+.modal-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+
+.form-group{margin-bottom:14px;}
+.form-label{display:block;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+.form-input,.form-select,.form-textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:var(--font-body);font-size:14px;color:var(--text);transition:border-color .15s;}
+.form-input:focus,.form-select:focus,.form-textarea:focus{outline:none;border-color:var(--accent);}
+.form-textarea{min-height:80px;resize:vertical;}
+.form-select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath fill='%236b7894' d='M6 8L0 0h12z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.form-hint{font-size:11px;color:var(--muted);margin-top:4px;}
+
+.empty{text-align:center;padding:40px 20px;color:var(--muted);}
+.empty-icon{font-size:40px;margin-bottom:12px;}
+.empty-text{font-size:14px;}
+
+.search-bar{position:relative;margin-bottom:16px;}
+.search-bar input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px 10px 38px;font-family:var(--font-body);font-size:14px;color:var(--text);}
+.search-bar input:focus{outline:none;border-color:var(--accent2);}
+.search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:16px;}
+
+.detail-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px;}
+.detail-row:last-child{border-bottom:none;}
+.detail-label{color:var(--muted);font-size:13px;flex-shrink:0;}
+.detail-value{font-weight:500;text-align:right;max-width:65%;word-break:break-word;}
+
+.alert{border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;font-size:13px;display:flex;align-items:flex-start;gap:8px;line-height:1.4;}
+.alert-warn{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3);color:var(--warn);}
+.alert-danger{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--danger);}
+.alert-info{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);color:var(--accent2);}
+.alert-success{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--success);}
+
+.tab-nav{display:flex;gap:4px;background:var(--card);border-radius:10px;padding:4px;margin-bottom:16px;overflow-x:auto;}
+.tab-nav-btn{flex:1;min-width:55px;padding:7px 4px;border:none;background:transparent;color:var(--muted);border-radius:7px;font-family:var(--font-body);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.tab-nav-btn.active{background:var(--accent);color:#0d0f12;}
+
+.wa-box{background:#075e54;border-radius:10px;padding:14px;margin-top:8px;}
+.wa-box pre{color:#dcf8c6;font-size:12px;font-family:var(--font-body);white-space:pre-wrap;word-break:break-word;margin-bottom:10px;line-height:1.5;}
+.wa-btn{background:#25d366;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-family:var(--font-body);font-size:14px;font-weight:700;cursor:pointer;width:100%;}
+
+.info-chip{display:inline-flex;align-items:center;gap:4px;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:11px;color:var(--muted);}
+.hidden{display:none!important;}
+
+.report-section{margin-bottom:20px;}
+.report-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.report-row:last-child{border-bottom:none;}
+.month-bar-wrap{margin:4px 0 10px;}
+.month-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:3px;}
+.month-bar-fill{height:100%;border-radius:4px;background:var(--accent);}
+
+/* Team member pill */
+.team-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(240,192,64,.12);border:1px solid rgba(240,192,64,.25);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--accent);}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- LOCK SCREEN -->
+<div id="lockScreen">
+  <div class="lock-logo">⚙ ServiceDesk</div>
+  <div class="lock-sub" id="lockMsg">Team Business Manager<br><span style="font-size:11px;opacity:.6">Enter your PIN to continue</span></div>
+  <div class="pin-dots" id="pinDots">
+    <div class="pin-dot" id="d0"></div><div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div><div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-pad">
+    <button class="pin-key" onclick="pinKey('1')">1</button>
+    <button class="pin-key" onclick="pinKey('2')">2</button>
+    <button class="pin-key" onclick="pinKey('3')">3</button>
+    <button class="pin-key" onclick="pinKey('4')">4</button>
+    <button class="pin-key" onclick="pinKey('5')">5</button>
+    <button class="pin-key" onclick="pinKey('6')">6</button>
+    <button class="pin-key" onclick="pinKey('7')">7</button>
+    <button class="pin-key" onclick="pinKey('8')">8</button>
+    <button class="pin-key" onclick="pinKey('9')">9</button>
+    <button class="pin-key" style="opacity:0;pointer-events:none"></button>
+    <button class="pin-key" onclick="pinKey('0')">0</button>
+    <button class="pin-key del" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="lock-error" id="lockError"></div>
+  <div class="lock-setup-msg" id="lockSetupMsg"></div>
+  <div id="syncStatus" style="margin-top:16px;font-size:12px;color:var(--muted);text-align:center;display:flex;align-items:center;gap:4px;justify-content:center">
+    <span class="sync-dot" id="syncDot"></span><span id="syncLabel">Connecting…</span>
+  </div>
+  <!-- DEBUG PANEL — remove after fixing -->
+  <div id="debugPanel" style="margin-top:20px;background:#0a0c0e;border:1px solid #f0c040;border-radius:10px;padding:12px 14px;width:100%;max-width:300px;font-size:11px;font-family:monospace;">
+    <div style="color:#f0c040;font-weight:700;margin-bottom:8px;">🔍 Debug Panel</div>
+    <div id="dbg" style="color:#a0aec0;line-height:1.9;">Loading…</div>
+    <button onclick="refreshDebug()" style="margin-top:10px;background:#1e242d;border:1px solid #2a3140;color:#e8edf5;border-radius:6px;padding:5px 12px;font-size:11px;cursor:pointer;width:100%;">↻ Refresh</button>
+    <button onclick="clearAndReset()" style="margin-top:6px;background:#7f1d1d;border:1px solid #ef4444;color:#fca5a5;border-radius:6px;padding:5px 12px;font-size:11px;cursor:pointer;width:100%;">🗑 Clear local data &amp; reload</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="mainApp" class="hidden">
+  <nav>
+    <div class="nav-brand">⚙ ServiceDesk</div>
+    <div class="nav-actions">
+      <span id="navSyncChip" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);padding:0 4px">
+        <span class="sync-dot" id="navSyncDot"></span><span id="navSyncLabel">Sync</span>
+      </span>
+      <button class="nav-lock" onclick="lockApp()" title="Lock">🔒</button>
+    </div>
+  </nav>
+  <main id="main-content"></main>
+
+  <!-- MORE DRAWER -->
+  <div id="moreDrawer" style="display:none;position:fixed;bottom:60px;right:0;left:0;z-index:99;background:var(--surface);border-top:1px solid var(--border);padding:12px 16px;max-width:600px;margin:0 auto;">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+      <div class="tab-item" id="tab-expenses"  style="flex-direction:column;padding:10px 4px;border-radius:10px;background:var(--card)" onclick="navigate('expenses');closeMore()"><span class="tab-icon">💸</span><span style="font-size:11px;margin-top:4px">Expenses</span></div>
+      <div class="tab-item" id="tab-reports"   style="flex-direction:column;padding:10px 4px;border-radius:10px;background:var(--card)" onclick="navigate('reports');closeMore()"><span class="tab-icon">📊</span><span style="font-size:11px;margin-top:4px">Reports</span></div>
+      <div class="tab-item" id="tab-team"      style="flex-direction:column;padding:10px 4px;border-radius:10px;background:var(--card)" onclick="navigate('team');closeMore()"><span class="tab-icon">👤</span><span style="font-size:11px;margin-top:4px">Team</span></div>
+      <div class="tab-item" id="tab-settings"  style="flex-direction:column;padding:10px 4px;border-radius:10px;background:var(--card)" onclick="navigate('settings');closeMore()"><span class="tab-icon">⚙️</span><span style="font-size:11px;margin-top:4px">Settings</span></div>
+    </div>
+  </div>
+  <div id="moreOverlay" style="display:none;position:fixed;inset:0;z-index:98;" onclick="closeMore()"></div>
+
+  <div class="tab-bar">
+    <div class="tab-item" id="tab-dashboard" onclick="navigate('dashboard')"><span class="tab-icon">🏠</span><span>Home</span></div>
+    <div class="tab-item" id="tab-clients"   onclick="navigate('clients')">  <span class="tab-icon">👥</span><span>Clients</span></div>
+    <div class="tab-item" id="tab-jobs"      onclick="navigate('jobs')">     <span class="tab-icon">🔧</span><span>Jobs</span></div>
+    <div class="tab-item" id="tab-invoices"  onclick="navigate('invoices')"> <span class="tab-icon">📄</span><span>Invoices</span></div>
+    <div class="tab-item" id="tab-more"      onclick="toggleMore()">         <span class="tab-icon">⋯</span><span>More</span></div>
+  </div>
+</div>
+
+</div><!-- #app -->
+
+<script>
+// ═══════════════════════════════════════════════
+//  SUPABASE INIT
+// ═══════════════════════════════════════════════
+const SUPA_URL = 'https://fbuhilutctfmgjgfczjd.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZidWhpbHV0Y3RmbWdqZ2ZjempkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NzAwMDYsImV4cCI6MjA5MjQ0NjAwNn0.0weu_8CofFJXXj1DdVGGBh4KEqWw9YBNqzxM6Ad69i0';
+const { createClient } = supabase;
+const sb = createClient(SUPA_URL, SUPA_KEY);
+
+// ═══════════════════════════════════════════════
+//  SECURITY — XSS sanitiser
+// ═══════════════════════════════════════════════
+function esc(str){
+  if(str==null)return'';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ═══════════════════════════════════════════════
+//  GLOBALS
+// ═══════════════════════════════════════════════
+let currentPage='dashboard';
+let editingId=null;
+let invLineItems=[];
+let activeJobStatus='all';
+let activeInvStatus='all';
+let dashRange='month';
+let currentUser=null; // {id, name, role}
+let isOnline=navigator.onLine;
+let syncQueue=[]; // pending writes when offline
+
+// ═══════════════════════════════════════════════
+//  SYNC STATUS UI
+// ═══════════════════════════════════════════════
+function setSyncStatus(state,label){
+  ['syncDot','navSyncDot'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){el.className='sync-dot '+state;}
+  });
+  const sl=document.getElementById('syncLabel');
+  const nl=document.getElementById('navSyncLabel');
+  if(sl)sl.textContent=label;
+  if(nl)nl.textContent=label;
+}
+window.addEventListener('online',()=>{isOnline=true;setSyncStatus('online','Live');flushQueue();});
+window.addEventListener('offline',()=>{isOnline=false;setSyncStatus('offline','Offline');});
+
+// ═══════════════════════════════════════════════
+//  LOCAL CACHE (for offline use + speed)
+// ═══════════════════════════════════════════════
+const Cache={
+  get(k){try{return JSON.parse(localStorage.getItem('sd_'+k))||[];}catch{return[];}},
+  set(k,v){localStorage.setItem('sd_'+k,JSON.stringify(v));},
+  getBiz(){try{return JSON.parse(localStorage.getItem('sd_biz'))||{};}catch{return{};}},
+  setBiz(b){localStorage.setItem('sd_biz',JSON.stringify(b));}
+};
+
+// ═══════════════════════════════════════════════
+//  DB — Supabase + local cache hybrid
+// ═══════════════════════════════════════════════
+const DB={
+  async get(table){
+    if(!isOnline){return Cache.get(table);}
+    try{
+      const {data,error}=await sb.from(table).select('*').order('created_at',{ascending:false});
+      if(error)throw error;
+      Cache.set(table,data);
+      return data;
+    }catch(e){
+      console.warn('DB.get fallback:',e);
+      return Cache.get(table);
+    }
+  },
+  async set(table,row){
+    // Upsert single row
+    if(!isOnline){syncQueue.push({table,row});return row;}
+    setSyncStatus('syncing','Saving…');
+    try{
+      const {data,error}=await sb.from(table).upsert(row,{onConflict:'id'}).select().single();
+      if(error)throw error;
+      setSyncStatus('online','Live');
+      return data;
+    }catch(e){
+      console.warn('DB.set error:',e);
+      syncQueue.push({table,row});
+      setSyncStatus('offline','Offline');
+      return row;
+    }
+  },
+  async delete(table,id){
+    if(!isOnline){
+      // Remove from cache
+      const cached=Cache.get(table).filter(r=>r.id!==id);
+      Cache.set(table,cached);
+      syncQueue.push({table,id,op:'delete'});
+      return;
+    }
+    setSyncStatus('syncing','Saving…');
+    try{
+      await sb.from(table).delete().eq('id',id);
+      setSyncStatus('online','Live');
+    }catch(e){
+      console.warn('DB.delete error:',e);
+      setSyncStatus('offline','Offline');
+    }
+  },
+  getBiz(){return Cache.getBiz();},
+  async setBiz(b){
+    Cache.setBiz(b);
+    if(!isOnline){syncQueue.push({table:'business_settings',row:{id:'main',...b}});return;}
+    setSyncStatus('syncing','Saving…');
+    try{
+      await sb.from('business_settings').upsert({id:'main',...b});
+      setSyncStatus('online','Live');
+    }catch(e){
+      setSyncStatus('offline','Offline');
+    }
+  },
+  async loadBizFromCloud(){
+    try{
+      const {data}=await sb.from('business_settings').select('*').eq('id','main').single();
+      if(data){Cache.setBiz(data);}
+    }catch{}
+  }
+};
+
+// ═══════════════════════════════════════════════
+//  OFFLINE QUEUE FLUSH
+// ═══════════════════════════════════════════════
+async function flushQueue(){
+  if(!syncQueue.length)return;
+  setSyncStatus('syncing','Syncing…');
+  const q=[...syncQueue];syncQueue=[];
+  for(const item of q){
+    try{
+      if(item.op==='delete'){
+        await sb.from(item.table).delete().eq('id',item.id);
+      }else{
+        await sb.from(item.table).upsert(item.row,{onConflict:'id'});
+      }
+    }catch(e){
+      syncQueue.push(item); // re-queue on failure
+    }
+  }
+  setSyncStatus(syncQueue.length?'offline':'online',syncQueue.length?'Offline':'Live');
+}
+
+// ═══════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function fmt(n){const s=DB.getBiz().currency||'JMD $';return s+' '+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2});}
+function fmtDate(str){if(!str)return'—';return new Date(str+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
+function today(){const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function todayLocal(){return today();}
+function addDays(d,n){const dt=new Date(d+'T12:00:00');dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);}
+function v(id){const el=document.getElementById(id);return el?el.value:'';}
+function emptyState(icon,text){return`<div class="empty"><div class="empty-icon">${icon}</div><div class="empty-text">${esc(text)}</div></div>`;}
+function sClass(s){return s==='Pending'?'pending':s==='In Progress'?'progress':s==='Completed'?'done':'cancelled';}
+function iClass(s){return s==='Unpaid'?'unpaid':s==='Partial'?'partial':s==='Paid'?'paid':'overdue';}
+
+// ═══════════════════════════════════════════════
+//  TOAST + MODAL
+// ═══════════════════════════════════════════════
+function toast(msg,type='success'){
+  document.getElementById('_toast')?.remove();
+  const t=document.createElement('div');t.id='_toast';
+  const col=type==='success'?'var(--success)':type==='warn'?'var(--warn)':'var(--danger)';
+  t.style.cssText=`position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:999;background:${col};color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;font-family:var(--font-body);box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:90%;text-align:center;animation:slideUp .2s`;
+  t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3500);
+}
+function showModal(html,locked=false){
+  closeModal();
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='modal-overlay';
+  if(!locked)ov.onclick=e=>{if(e.target===ov)closeModal();};
+  const m=document.createElement('div');m.className='modal';m.innerHTML=html;
+  ov.appendChild(m);document.body.appendChild(ov);
+}
+function closeModal(){
+  document.getElementById('modal-overlay')?.remove();
+  editingId=null;invLineItems=[];
+}
+
+// ═══════════════════════════════════════════════
+//  PIN + LOCK  (team-aware)
+// ═══════════════════════════════════════════════
+let pinBuf='';
+
+async function hPin(p){
+  const enc=new TextEncoder().encode(p+'sd_salt_2025');
+  const hash=await crypto.subtle.digest('SHA-256',enc);
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function initLock(){
+  // Check connectivity
+  try{
+    await sb.from('team_members').select('count',{count:'exact',head:true});
+    isOnline=true;
+    setSyncStatus('online','Live');
+  }catch{
+    isOnline=false;
+    setSyncStatus('offline','Offline');
+  }
+
+  // Load biz settings from cloud
+  if(isOnline) await DB.loadBizFromCloud();
+
+  // Check if any team members exist
+  const members=await getTeamMembers();
+  if(!members.length){
+    // First run — setup mode
+    document.getElementById('lockMsg').innerHTML='Welcome to ServiceDesk!<br><span style="font-size:11px;opacity:.6">Create your admin account below</span>';
+    document.getElementById('lockSetupMsg').innerHTML='<button onclick="openCreateMemberModal(true)" style="background:var(--accent);color:#0d0f12;border:none;border-radius:8px;padding:10px 20px;font-weight:700;font-size:14px;cursor:pointer;margin-top:10px">⚙ Set Up Team</button>';
+    return;
+  }
+
+  document.getElementById('lockMsg').innerHTML='Team Business Manager<br><span style="font-size:11px;opacity:.6">Enter your 4-digit PIN</span>';
+}
+
+async function getTeamMembers(){
+  try{
+    if(isOnline){
+      const {data}=await sb.from('team_members').select('*').order('created_at');
+      if(data){Cache.set('team_members',data);return data;}
+    }
+  }catch{}
+  return Cache.get('team_members');
+}
+
+function pinKey(k){
+  // Don't accept input if setup modal is open or no members exist yet
+  if(document.getElementById('modal-overlay'))return;
+  if(document.getElementById('lockSetupMsg')?.querySelector('button'))return;
+  if(pinBuf.length>=4)return;
+  pinBuf+=k;
+  document.getElementById('d'+(pinBuf.length-1)).classList.add('filled');
+  if(pinBuf.length===4)setTimeout(checkPin,100);
+}
+function pinDel(){
+  if(!pinBuf.length)return;
+  document.getElementById('d'+(pinBuf.length-1)).classList.remove('filled');
+  pinBuf=pinBuf.slice(0,-1);
+}
+
+async function checkPin(){
+  const members=await getTeamMembers();
+  if(!members.length){
+    // Still in setup mode — ignore PIN input
+    pinBuf='';
+    document.querySelectorAll('.pin-dot').forEach(d=>d.classList.remove('filled'));
+    return;
+  }
+  const h=await hPin(pinBuf);
+  const match=members.find(m=>m.pin_hash===h);
+  if(match){
+    currentUser={id:match.id,name:match.name,role:match.role};
+    document.getElementById('lockScreen').style.display='none';
+    document.getElementById('mainApp').classList.remove('hidden');
+    navigate('dashboard');
+    setSyncStatus(isOnline?'online':'offline',isOnline?'Live':'Offline');
+  }else{
+    document.getElementById('lockError').textContent='Wrong PIN — try again';
+    document.getElementById('pinDots').style.animation='shake .4s';
+    setTimeout(()=>{
+      document.getElementById('pinDots').style.animation='';
+      document.getElementById('lockError').textContent='';
+    },500);
+    pinBuf='';
+    document.querySelectorAll('.pin-dot').forEach(d=>d.classList.remove('filled'));
+  }
+}
+
+function lockApp(){
+  pinBuf='';
+  currentUser=null;
+  document.querySelectorAll('.pin-dot').forEach(d=>d.classList.remove('filled'));
+  document.getElementById('lockError').textContent='';
+  document.getElementById('mainApp').classList.add('hidden');
+  document.getElementById('lockScreen').style.display='flex';
+}
+
+// ═══════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════
+function navigate(page){
+  currentPage=page;
+  document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));
+  const drawerPages=['expenses','reports','team','settings'];
+  if(drawerPages.includes(page)){
+    document.getElementById('tab-more')?.classList.add('active');
+    document.getElementById('tab-'+page)?.classList.add('active');
+  }else{
+    document.getElementById('tab-'+page)?.classList.add('active');
+  }
+  closeMore();
+  renderPage();
+}
+function toggleMore(){const d=document.getElementById('moreDrawer');const o=document.getElementById('moreOverlay');const show=d.style.display==='none';d.style.display=show?'block':'none';o.style.display=show?'block':'none';}
+function closeMore(){document.getElementById('moreDrawer').style.display='none';document.getElementById('moreOverlay').style.display='none';}
+function addFab(fn){const b=document.createElement('button');b.className='fab';b.innerHTML='+';b.onclick=fn;document.getElementById('mainApp').appendChild(b);}
+
+async function renderPage(){
+  const m=document.getElementById('main-content');
+  document.querySelector('.fab')?.remove();
+  m.innerHTML=`<div style="text-align:center;padding:40px;color:var(--muted)">Loading…</div>`;
+  if(currentPage==='dashboard') m.innerHTML=await renderDashboard();
+  else if(currentPage==='clients'){m.innerHTML=await renderClients();addFab(()=>openClientModal());}
+  else if(currentPage==='jobs'){activeJobStatus='all';m.innerHTML=await renderJobs();addFab(()=>openJobModal());}
+  else if(currentPage==='invoices'){activeInvStatus='all';m.innerHTML=await renderInvoices();addFab(()=>openInvoiceModal());}
+  else if(currentPage==='expenses'){m.innerHTML=await renderExpenses();addFab(()=>openExpenseModal());}
+  else if(currentPage==='reports') m.innerHTML=await renderReports();
+  else if(currentPage==='team')    m.innerHTML=await renderTeam();
+  else if(currentPage==='settings') m.innerHTML=renderSettings();
+}
+
+// ═══════════════════════════════════════════════
+//  DASHBOARD
+// ═══════════════════════════════════════════════
+async function renderDashboard(){
+  const [jobs,invs,clients,expenses]=await Promise.all([DB.get('jobs'),DB.get('invoices'),DB.get('clients'),DB.get('expenses')]);
+  const biz=DB.getBiz();const td=todayLocal();
+  const now=new Date();
+  let rangeStart='';
+  if(dashRange==='week'){const d=new Date(now);d.setDate(d.getDate()-6);rangeStart=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+  else if(dashRange==='month'){rangeStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;}
+  else if(dashRange==='year'){rangeStart=`${now.getFullYear()}-01-01`;}
+  const activeClients=clients.filter(c=>!c.archived);
+  const rangeJobs=rangeStart?jobs.filter(j=>j.date>=rangeStart):jobs;
+  const rangeInvs=rangeStart?invs.filter(i=>i.date>=rangeStart):invs;
+  const todayJobs=jobs.filter(j=>j.date===td&&j.status!=='Cancelled');
+  const inProg=jobs.filter(j=>j.status==='In Progress');
+  const unpaid=invs.filter(i=>i.status==='Unpaid'||i.status==='Partial');
+  const overdue=invs.filter(i=>i.due_date&&i.due_date<td&&i.status!=='Paid');
+  const owed=unpaid.reduce((s,i)=>s+(Number(i.total)-Number(i.paid||0)),0);
+  const rev=rangeInvs.filter(i=>i.status==='Paid').reduce((s,i)=>s+Number(i.total),0);
+  const doneJobs=rangeJobs.filter(j=>j.status==='Completed').length;
+  const pct=rangeJobs.length?Math.round(doneJobs/rangeJobs.length*100):0;
+  const recentJobs=[...jobs].sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||'')).slice(0,4);
+  const alerts=[];
+  if(!biz.name)alerts.push({t:'warn',m:'⚙️ Set up your business name in Settings.'});
+  if(todayJobs.length)alerts.push({t:'info',m:`📅 ${todayJobs.length} job${todayJobs.length>1?'s':''} scheduled today.`});
+  if(overdue.length)alerts.push({t:'danger',m:`🚨 ${overdue.length} invoice${overdue.length>1?'s':''} overdue — chase payment!`});
+  if(!isOnline)alerts.push({t:'warn',m:'📵 You are offline. Changes will sync when reconnected.'});
+  const rangeLabel=dashRange==='week'?'Week':dashRange==='month'?'Month':dashRange==='year'?'Year':'All';
+  return`
+  <div class="page-header">
+    <div class="page-title">${esc(biz.name)||'My Business'}</div>
+    <div class="page-sub">${fmtDate(td)} &nbsp;·&nbsp; <span class="team-pill">👤 ${esc(currentUser?.name||'User')}</span></div>
+  </div>
+  ${alerts.map(a=>`<div class="alert alert-${a.t}">${a.m}</div>`).join('')}
+  <div class="tab-nav" style="margin-bottom:14px">
+    <button class="tab-nav-btn ${dashRange==='week'?'active':''}" onclick="setDashRange('week')">Week</button>
+    <button class="tab-nav-btn ${dashRange==='month'?'active':''}" onclick="setDashRange('month')">Month</button>
+    <button class="tab-nav-btn ${dashRange==='year'?'active':''}" onclick="setDashRange('year')">Year</button>
+    <button class="tab-nav-btn ${dashRange==='all'?'active':''}" onclick="setDashRange('all')">All Time</button>
+  </div>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-value ca">${activeClients.length}</div><div class="stat-label">Clients</div></div>
+    <div class="stat-card"><div class="stat-value cb">${rangeJobs.length}</div><div class="stat-label">Jobs (${rangeLabel})</div></div>
+    <div class="stat-card"><div class="stat-value cr" style="font-size:17px">${fmt(owed)}</div><div class="stat-label">Outstanding</div></div>
+    <div class="stat-card"><div class="stat-value cg" style="font-size:17px">${fmt(rev)}</div><div class="stat-label">Collected (${rangeLabel})</div></div>
+  </div>
+  <div class="card" style="padding:12px 16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px">Job Completion</span>
+      <span style="font-family:var(--font-display);font-weight:800;font-size:16px;color:${pct>=80?'var(--success)':pct>=50?'var(--warn)':'var(--accent2)'}">${pct}%</span>
+    </div>
+    <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${pct>=80?'var(--success)':pct>=50?'var(--warn)':'var(--accent2)'};border-radius:3px;transition:width .4s"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">${doneJobs} of ${rangeJobs.length} completed${inProg.length?` · ${inProg.length} in progress`:''}</div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="card-title" style="margin-bottom:0">Recent Jobs</div>
+      <button class="nav-btn" onclick="navigate('jobs')" style="font-size:11px;padding:4px 8px">See all →</button>
+    </div>
+    ${recentJobs.length?recentJobs.map(j=>{const c=clients.find(cl=>cl.id===j.client_id);return`<div class="list-item" onclick="openJobDetail('${j.id}')"><div class="list-item-header"><span class="list-item-title">${esc(j.description)}</span><span class="badge badge-${sClass(j.status)}">${esc(j.status)}</span></div><div class="list-item-sub">${esc(c?c.name:'No client')} · ${fmtDate(j.date)}</div></div>`;}).join(''):emptyState('🔧','No jobs yet. Tap + to create.')}
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div class="card-title" style="margin-bottom:0">Unpaid Invoices</div>
+      ${unpaid.length>4?`<button class="nav-btn" onclick="navigate('invoices')" style="font-size:11px;padding:4px 8px">See all →</button>`:''}
+    </div>
+    ${unpaid.length?unpaid.slice(0,4).map(inv=>{const c=clients.find(cl=>cl.id===inv.client_id);const o=Number(inv.total)-Number(inv.paid||0);const ov=inv.due_date&&inv.due_date<td;return`<div class="list-item" onclick="openInvoiceDetail('${inv.id}')"><div class="list-item-header"><span class="list-item-title">INV-${esc(inv.inv_number)}</span><span class="badge badge-${ov?'overdue':iClass(inv.status)}">${ov?'Overdue':esc(inv.status)}</span></div><div class="list-item-sub">${esc(c?c.name:'—')} · <strong style="color:var(--danger)">${fmt(o)} owed</strong></div></div>`;}).join(''):'<div style="color:var(--success);font-size:13px;padding:4px 0">✅ All invoices paid!</div>'}
+  </div>`;
+}
+async function setDashRange(r){dashRange=r;document.getElementById('main-content').innerHTML=await renderDashboard();}
+
+// ═══════════════════════════════════════════════
+//  CLIENTS
+// ═══════════════════════════════════════════════
+async function renderClients(){
+  const all=await DB.get('clients');
+  const active=all.filter(c=>!c.archived);
+  const archived=all.filter(c=>c.archived);
+  return`<div class="page-header"><div class="page-title">Clients</div><div class="page-sub">${active.length} active${archived.length?` · ${archived.length} archived`:''}</div></div>
+  <div class="search-bar"><span class="search-icon">🔍</span><input type="text" id="cSearch" placeholder="Search by name or phone…" oninput="filterClients()" /></div>
+  <div id="clientList">${active.length?active.map(cCard).join(''):emptyState('👥','No clients yet. Tap + to add.')}
+  ${archived.length?`<div style="margin-top:16px"><div class="card-title" style="margin-bottom:8px">Archived Clients</div>${archived.map(c=>`<div class="list-item" onclick="openClientDetail('${c.id}')" style="opacity:.6"><div class="list-item-header"><span class="list-item-title">${esc(c.name)}</span><span class="badge badge-archived">Archived</span></div><div class="list-item-sub">${esc(c.phone||'No phone')}</div></div>`).join('')}</div>`:''}</div>`;
+}
+function cCard(c){
+  const invs=Cache.get('invoices').filter(i=>i.client_id===c.id);
+  const jobs=Cache.get('jobs').filter(j=>j.client_id===c.id);
+  const owed=invs.filter(i=>i.status!=='Paid').reduce((s,i)=>s+(Number(i.total)-Number(i.paid||0)),0);
+  return`<div class="list-item" onclick="openClientDetail('${c.id}')">
+    <div class="list-item-header"><span class="list-item-title">${esc(c.name)}</span>${owed>0?`<span class="badge badge-unpaid">${fmt(owed)}</span>`:''}</div>
+    <div class="list-item-sub">${esc(c.phone||'No phone')} · ${esc(c.address||'No address')}</div>
+    <div class="list-item-meta"><span class="badge badge-progress">${jobs.length} jobs</span><span class="badge badge-done">${invs.length} invoices</span></div>
+  </div>`;
+}
+async function filterClients(){
+  const q=(document.getElementById('cSearch')?.value||'').toLowerCase();
+  const all=await DB.get('clients');
+  const r=all.filter(c=>!c.archived&&(c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q)));
+  document.getElementById('clientList').innerHTML=r.length?r.map(cCard).join(''):emptyState('🔍','No results.');
+}
+function openClientModal(id=null){
+  editingId=id;
+  const all=Cache.get('clients');
+  const c=id?all.find(cl=>cl.id===id):{};
+  showModal(`<div class="modal-title">${id?'Edit Client':'New Client'}</div>
+    <div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" id="c_name" value="${esc(c.name||'')}" placeholder="John Brown" /></div>
+    <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="c_phone" value="${esc(c.phone||'')}" placeholder="+1 876 555 0000" /></div>
+    <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="c_email" type="email" value="${esc(c.email||'')}" /></div>
+    <div class="form-group"><label class="form-label">Address</label><input class="form-input" id="c_address" value="${esc(c.address||'')}" /></div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="c_notes">${esc(c.notes||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveClient()">${id?'Save':'Add Client'}</button>
+      ${id&&!c.archived?`<button class="btn btn-secondary btn-sm" onclick="archiveClient('${id}')">📦 Archive</button>`:''}
+      ${id&&c.archived?`<button class="btn btn-secondary btn-sm" onclick="unarchiveClient('${id}')">♻️ Restore</button>`:''}
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+async function saveClient(){
+  const name=document.getElementById('c_name').value.trim();if(!name){alert('Name required.');return;}
+  const all=Cache.get('clients');
+  const existing=editingId?all.find(c=>c.id===editingId):{};
+  const obj={id:editingId||uid(),name,phone:v('c_phone'),email:v('c_email'),address:v('c_address'),notes:v('c_notes'),archived:existing.archived||false,created_at:editingId?(existing.created_at||new Date().toISOString()):new Date().toISOString(),updated_at:new Date().toISOString()};
+  // Update local cache immediately
+  const list=Cache.get('clients');
+  if(editingId){const i=list.findIndex(c=>c.id===editingId);if(i>-1)list[i]=obj;else list.push(obj);}else list.push(obj);
+  Cache.set('clients',list);
+  closeModal();navigate('clients');
+  await DB.set('clients',obj);
+}
+async function archiveClient(id){
+  if(!confirm('Archive this client? Linked jobs and invoices are kept.'))return;
+  const list=Cache.get('clients');const i=list.findIndex(c=>c.id===id);
+  if(i>-1){list[i].archived=true;list[i].updated_at=new Date().toISOString();Cache.set('clients',list);await DB.set('clients',list[i]);}
+  closeModal();navigate('clients');
+}
+async function unarchiveClient(id){
+  const list=Cache.get('clients');const i=list.findIndex(c=>c.id===id);
+  if(i>-1){list[i].archived=false;list[i].updated_at=new Date().toISOString();Cache.set('clients',list);await DB.set('clients',list[i]);}
+  closeModal();navigate('clients');
+}
+async function openClientDetail(id){
+  const all=await DB.get('clients');
+  const c=all.find(cl=>cl.id===id);if(!c)return;
+  const jobs=Cache.get('jobs').filter(j=>j.client_id===id);
+  const invs=Cache.get('invoices').filter(i=>i.client_id===id);
+  const owed=invs.filter(i=>i.status!=='Paid').reduce((s,i)=>s+(Number(i.total)-Number(i.paid||0)),0);
+  showModal(`<div class="modal-title">${esc(c.name)}${c.archived?' <span class="badge badge-archived">Archived</span>':''}</div>
+    <div class="card">
+      <div class="detail-row"><span class="detail-label">Phone</span><span class="detail-value">${esc(c.phone||'—')}</span></div>
+      <div class="detail-row"><span class="detail-label">Email</span><span class="detail-value">${esc(c.email||'—')}</span></div>
+      <div class="detail-row"><span class="detail-label">Address</span><span class="detail-value">${esc(c.address||'—')}</span></div>
+      <div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value">${esc(c.notes||'—')}</span></div>
+      ${owed>0?`<div class="detail-row"><span class="detail-label">Balance Owed</span><span class="detail-value cr" style="font-weight:700">${fmt(owed)}</span></div>`:''}
+    </div>
+    <div class="card"><div class="card-title">Jobs (${jobs.length})</div>${jobs.slice(0,3).map(j=>`<div class="detail-row"><span>${esc(j.description)}</span><span class="badge badge-${sClass(j.status)}">${esc(j.status)}</span></div>`).join('')||'<div style="color:var(--muted);font-size:13px">None yet.</div>'}</div>
+    <div class="card"><div class="card-title">Invoices (${invs.length})</div>${invs.slice(0,3).map(i=>`<div class="detail-row"><span>INV-${esc(i.inv_number)}</span><span class="badge badge-${iClass(i.status)}">${fmt(i.total)}</span></div>`).join('')||'<div style="color:var(--muted);font-size:13px">None yet.</div>'}</div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal();openClientModal('${id}')">✏️ Edit</button>
+      ${!c.archived?`<button class="btn btn-secondary" onclick="closeModal();openJobModal(null,'${id}')">+ Job</button>`:''}
+      ${!c.archived?`<button class="btn btn-secondary" onclick="closeModal();openInvoiceModal(null,'${id}')">+ Invoice</button>`:''}
+      <button class="btn btn-secondary" onclick="generateClientStatement('${id}')">📋 Statement</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+    </div>`);
+}
+
+// ═══════════════════════════════════════════════
+//  JOBS
+// ═══════════════════════════════════════════════
+async function renderJobs(){
+  const jobs=[...await DB.get('jobs')].sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''));
+  return`<div class="page-header"><div class="page-title">Jobs</div><div class="page-sub">${jobs.length} total</div></div>
+  <div class="search-bar"><span class="search-icon">🔍</span><input type="text" id="jSearch" placeholder="Search jobs…" oninput="filterJobs()" /></div>
+  <div class="tab-nav">
+    <button class="tab-nav-btn active" onclick="filterJobStatus(this,'all')">All</button>
+    <button class="tab-nav-btn" onclick="filterJobStatus(this,'Pending')">Pending</button>
+    <button class="tab-nav-btn" onclick="filterJobStatus(this,'In Progress')">Active</button>
+    <button class="tab-nav-btn" onclick="filterJobStatus(this,'Completed')">Done</button>
+  </div>
+  <div id="jobList">${jobs.length?jobs.map(jCard).join(''):emptyState('🔧','No jobs yet. Tap + to create.')}</div>`;
+}
+function jCard(j){
+  const clients=Cache.get('clients');
+  const c=clients.find(cl=>cl.id===j.client_id);
+  return`<div class="list-item" onclick="openJobDetail('${j.id}')">
+    <div class="list-item-header"><span class="list-item-title">${esc(j.description)}</span><span class="badge badge-${sClass(j.status)}">${esc(j.status)}</span></div>
+    <div class="list-item-sub">${esc(c?c.name:'No client')} · ${fmtDate(j.date)}</div>
+    <div class="list-item-meta">${j.cost?`<span style="color:var(--accent);font-size:12px;font-weight:600">${fmt(j.cost)}</span>`:''}${j.recur?`<span class="info-chip">🔁 ${j.recur}</span>`:''}</div>
+  </div>`;
+}
+async function filterJobs(){
+  const q=(document.getElementById('jSearch')?.value||'').toLowerCase();
+  let r=Cache.get('jobs').filter(j=>j.description.toLowerCase().includes(q));
+  if(activeJobStatus!=='all')r=r.filter(j=>j.status===activeJobStatus);
+  document.getElementById('jobList').innerHTML=r.length?r.map(jCard).join(''):emptyState('🔍','No results.');
+}
+function filterJobStatus(btn,status){
+  activeJobStatus=status;
+  document.querySelectorAll('.tab-nav-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const q=(document.getElementById('jSearch')?.value||'').toLowerCase();
+  let j=Cache.get('jobs').filter(jb=>jb.description.toLowerCase().includes(q));
+  const f=status==='all'?j:j.filter(jb=>jb.status===status);
+  document.getElementById('jobList').innerHTML=f.length?f.map(jCard).join(''):emptyState('🔍','No jobs here.');
+}
+function openJobModal(id=null,prefillClientId=null){
+  editingId=id;
+  const jobs=Cache.get('jobs');
+  const j=id?jobs.find(jb=>jb.id===id):{};
+  const clients=Cache.get('clients').filter(c=>!c.archived);
+  const opts=clients.map(c=>`<option value="${c.id}" ${(j.client_id||prefillClientId)===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
+  showModal(`<div class="modal-title">${id?'Edit Job':'New Job'}</div>
+    <div class="form-group"><label class="form-label">Description *</label><input class="form-input" id="j_desc" value="${esc(j.description||'')}" placeholder="e.g. Fix leaking kitchen pipe" /></div>
+    <div class="form-group"><label class="form-label">Client</label><select class="form-select" id="j_client"><option value="">-- No client --</option>${opts}</select></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Date *</label><input class="form-input" id="j_date" type="date" value="${j.date||today()}" /></div>
+      <div class="form-group"><label class="form-label">Time</label><input class="form-input" id="j_time" type="time" value="${j.time||''}" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Status</label>
+        <select class="form-select" id="j_status">
+          <option ${!j.status||j.status==='Pending'?'selected':''}>Pending</option>
+          <option ${j.status==='In Progress'?'selected':''}>In Progress</option>
+          <option ${j.status==='Completed'?'selected':''}>Completed</option>
+          <option ${j.status==='Cancelled'?'selected':''}>Cancelled</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Job Cost</label><input class="form-input" id="j_cost" type="number" value="${j.cost||''}" placeholder="0.00" /></div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes / Work Done</label><textarea class="form-textarea" id="j_notes">${esc(j.notes||'')}</textarea></div>
+    <div class="form-group"><label class="form-label">Recurring</label>
+      <select class="form-select" id="j_recur">
+        <option value="" ${!j.recur?'selected':''}>None</option>
+        <option value="weekly" ${j.recur==='weekly'?'selected':''}>Weekly</option>
+        <option value="biweekly" ${j.recur==='biweekly'?'selected':''}>Every 2 Weeks</option>
+        <option value="monthly" ${j.recur==='monthly'?'selected':''}>Monthly</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveJob()">${id?'Save Changes':'Create Job'}</button>
+      ${id?`<button class="btn btn-danger btn-sm" onclick="delJob('${id}')">Delete</button>`:''}
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+async function saveJob(){
+  const desc=document.getElementById('j_desc').value.trim();if(!desc){alert('Description required.');return;}
+  const date=v('j_date')||today();
+  const jobs=Cache.get('jobs');const ex=editingId?jobs.find(j=>j.id===editingId):{};
+  const obj={id:editingId||uid(),description:desc,client_id:v('j_client')||null,date,time:v('j_time'),status:v('j_status')||'Pending',cost:v('j_cost')||0,notes:v('j_notes'),recur:v('j_recur')||'',created_by:currentUser?.id||null,created_at:ex.created_at||new Date().toISOString(),updated_at:new Date().toISOString()};
+  if(editingId){const i=jobs.findIndex(j=>j.id===editingId);if(i>-1)jobs[i]=obj;else jobs.push(obj);}else jobs.push(obj);
+  Cache.set('jobs',jobs);
+  closeModal();navigate('jobs');
+  await DB.set('jobs',obj);
+}
+async function delJob(id){
+  if(!confirm('Delete this job?'))return;
+  const jobs=Cache.get('jobs').filter(j=>j.id!==id);
+  Cache.set('jobs',jobs);
+  closeModal();navigate('jobs');
+  await DB.delete('jobs',id);
+}
+async function openJobDetail(id){
+  const jobs=Cache.get('jobs');
+  const j=jobs.find(jb=>jb.id===id);if(!j)return;
+  const clients=Cache.get('clients');
+  const c=clients.find(cl=>cl.id===j.client_id);
+  const biz=DB.getBiz();
+  const waMsg=buildJobMsg(j,c,biz);
+  showModal(`<div class="modal-title">${esc(j.description)}</div>
+    <span class="badge badge-${sClass(j.status)}" style="margin-bottom:12px;display:inline-block">${esc(j.status)}</span>
+    <div class="card">
+      <div class="detail-row"><span class="detail-label">Client</span><span class="detail-value">${esc(c?c.name:'—')}</span></div>
+      <div class="detail-row"><span class="detail-label">Date</span><span class="detail-value">${fmtDate(j.date)}</span></div>
+      <div class="detail-row"><span class="detail-label">Time</span><span class="detail-value">${esc(j.time||'—')}</span></div>
+      <div class="detail-row"><span class="detail-label">Job Cost</span><span class="detail-value ca">${fmt(j.cost)}</span></div>
+      ${j.recur?`<div class="detail-row"><span class="detail-label">Recurring</span><span class="detail-value">🔁 ${esc(j.recur)}</span></div>`:''}
+      <div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value">${esc(j.notes||'—')}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Quick Status</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${['Pending','In Progress','Completed','Cancelled'].map(s=>`<button class="btn btn-sm ${j.status===s?'btn-primary':'btn-secondary'}" onclick="setJobStatus('${id}','${s}')">${s}</button>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📤 Share via WhatsApp</div>
+      <div class="wa-box">
+        <pre>${esc(waMsg)}</pre>
+        <button class="wa-btn" onclick="openWA('${id}','job')">📱 Send to Client</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal();openJobModal('${id}')">✏️ Edit</button>
+      <button class="btn btn-secondary" onclick="closeModal();openInvoiceModal(null,'${j.client_id||''}')">📄 Create Invoice</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+    </div>`);
+}
+async function setJobStatus(id,status){
+  const jobs=Cache.get('jobs');const i=jobs.findIndex(j=>j.id===id);
+  if(i>-1){jobs[i].status=status;jobs[i].updated_at=new Date().toISOString();Cache.set('jobs',jobs);await DB.set('jobs',jobs[i]);}
+  closeModal();navigate('jobs');
+}
+function buildJobMsg(j,c,biz){return`*${biz.name||'ServiceDesk'}*\n\n🔧 *Job: ${j.description}*\nClient: ${c?c.name:'—'}\nDate: ${fmtDate(j.date)}${j.time?' at '+j.time:''}\nStatus: ${j.status}\n${j.cost?`\nJob Cost: ${fmt(j.cost)}`:''}${j.notes?`\n\nNotes: ${j.notes}`:''}\n\n_Sent via ServiceDesk_`;}
+function openWA(id,type){
+  const biz=DB.getBiz();const phone=biz.wa||'';
+  let msg='';
+  if(type==='job'){const j=Cache.get('jobs').find(jb=>jb.id===id);const c=Cache.get('clients').find(cl=>cl.id===j?.client_id);msg=buildJobMsg(j,c,biz);}
+  else{const inv=Cache.get('invoices').find(i=>i.id===id);const c=Cache.get('clients').find(cl=>cl.id===inv?.client_id);msg=buildInvMsg(inv,c,biz);}
+  const url=`https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`;
+  window.open(url,'_blank');
+}
+
+// ═══════════════════════════════════════════════
+//  INVOICES
+// ═══════════════════════════════════════════════
+async function renderInvoices(){
+  const invs=[...await DB.get('invoices')].sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''));
+  const td=todayLocal();
+  const total=invs.reduce((s,i)=>s+Number(i.total),0);
+  const collected=invs.filter(i=>i.status==='Paid').reduce((s,i)=>s+Number(i.total),0);
+  const outstanding=invs.filter(i=>i.status!=='Paid').reduce((s,i)=>s+(Number(i.total)-Number(i.paid||0)),0);
+  return`<div class="page-header"><div class="page-title">Invoices</div><div class="page-sub">${invs.length} total</div></div>
+  <div class="stat-grid" style="margin-bottom:14px">
+    <div class="stat-card"><div class="stat-value cg" style="font-size:16px">${fmt(collected)}</div><div class="stat-label">Collected</div></div>
+    <div class="stat-card"><div class="stat-value cr" style="font-size:16px">${fmt(outstanding)}</div><div class="stat-label">Outstanding</div></div>
+  </div>
+  <div class="tab-nav">
+    <button class="tab-nav-btn active" onclick="filterInvStatus(this,'all')">All</button>
+    <button class="tab-nav-btn" onclick="filterInvStatus(this,'Unpaid')">Unpaid</button>
+    <button class="tab-nav-btn" onclick="filterInvStatus(this,'Partial')">Partial</button>
+    <button class="tab-nav-btn" onclick="filterInvStatus(this,'Paid')">Paid</button>
+  </div>
+  <div id="invList">${invs.length?invs.map(inv=>iCard(inv,td)).join(''):emptyState('📄','No invoices yet. Tap + to create.')}</div>`;
+}
+function iCard(inv,td){
+  const clients=Cache.get('clients');
+  const c=clients.find(cl=>cl.id===inv.client_id);
+  const o=Number(inv.total)-Number(inv.paid||0);
+  const ov=inv.due_date&&inv.due_date<td&&inv.status!=='Paid';
+  return`<div class="list-item" onclick="openInvoiceDetail('${inv.id}')">
+    <div class="list-item-header"><span class="list-item-title">INV-${esc(inv.inv_number)}</span><span class="badge badge-${ov?'overdue':iClass(inv.status)}">${ov?'Overdue':esc(inv.status)}</span></div>
+    <div class="list-item-sub">${esc(c?c.name:'—')} · ${fmtDate(inv.date)}</div>
+    <div class="list-item-meta"><span style="color:var(--accent);font-size:12px;font-weight:600">${fmt(inv.total)}</span>${o>0&&inv.status!=='Paid'?`<span style="color:var(--danger);font-size:12px">Owed: ${fmt(o)}</span>`:''}</div>
+  </div>`;
+}
+function filterInvStatus(btn,status){
+  activeInvStatus=status;
+  document.querySelectorAll('.tab-nav-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const td=todayLocal();
+  let invs=Cache.get('invoices');
+  if(status!=='all')invs=invs.filter(i=>i.status===status);
+  document.getElementById('invList').innerHTML=invs.length?invs.map(i=>iCard(i,td)).join(''):emptyState('🔍','No invoices here.');
+}
+function openInvoiceModal(id=null,prefillClientId=''){
+  editingId=id;
+  const invs=Cache.get('invoices');
+  const inv=id?invs.find(i=>i.id===id):{};
+  if(id&&inv.items)invLineItems=[...inv.items];else invLineItems=[{desc:'',qty:1,price:0}];
+  const clients=Cache.get('clients').filter(c=>!c.archived);
+  const opts=clients.map(c=>`<option value="${c.id}" ${(inv.client_id||prefillClientId)===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
+  const nextNum=id?inv.inv_number:String((invs.reduce((m,i)=>Math.max(m,parseInt(i.inv_number)||0),0)+1)).padStart(4,'0');
+  showModal(`<div class="modal-title">${id?'Edit Invoice':'New Invoice'}</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Invoice #</label><input class="form-input" id="inv_num" value="${esc(inv.inv_number||nextNum)}" /></div>
+      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="inv_date" type="date" value="${inv.date||today()}" /></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Due Date</label><input class="form-input" id="inv_due" type="date" value="${inv.due_date||addDays(today(),14)}" /></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select class="form-select" id="inv_status">
+          <option ${!inv.status||inv.status==='Unpaid'?'selected':''}>Unpaid</option>
+          <option ${inv.status==='Partial'?'selected':''}>Partial</option>
+          <option ${inv.status==='Paid'?'selected':''}>Paid</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label class="form-label">Client *</label><select class="form-select" id="inv_client"><option value="">-- Select client --</option>${opts}</select></div>
+    <div class="form-group"><label class="form-label">Line Items</label>
+      <div id="lineItems">${renderLines()}</div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="addLine()">+ Add Item</button>
+      <div style="margin-top:10px;font-size:14px;font-weight:600;color:var(--accent)">Total: <span id="invTotal">${fmt(calcTotal())}</span></div>
+    </div>
+    <div class="form-group"><label class="form-label">Amount Paid</label><input class="form-input" id="inv_paid" type="number" value="${inv.paid||0}" /></div>
+    <div class="form-group"><label class="form-label" id="inv_notes_label">Payment Instructions / Notes</label><textarea class="form-textarea" id="inv_notes">${esc(inv.notes||DB.getBiz().payment||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveInvoice()">${id?'Save':'Create Invoice'}</button>
+      ${id?`<button class="btn btn-danger btn-sm" onclick="delInvoice('${id}')">Delete</button>`:''}
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+function renderLines(){if(!invLineItems.length)return'<div style="color:var(--muted);font-size:13px">No items yet.</div>';return invLineItems.map((it,i)=>`<div style="display:grid;grid-template-columns:1fr 50px 80px 28px;gap:5px;margin-bottom:6px;align-items:center"><input class="form-input" style="font-size:13px;padding:7px 8px" placeholder="Description" value="${esc(it.desc||'')}" oninput="updLine(${i},'desc',this.value)" /><input class="form-input" style="font-size:13px;padding:7px 5px;text-align:center" type="number" value="${it.qty||1}" oninput="updLine(${i},'qty',this.value)" /><input class="form-input" style="font-size:13px;padding:7px 6px" type="number" placeholder="Price" value="${it.price||''}" oninput="updLine(${i},'price',this.value)" /><button style="background:none;border:none;color:var(--danger);font-size:20px;cursor:pointer" onclick="remLine(${i})">×</button></div>`).join('');}
+function addLine(){invLineItems.push({desc:'',qty:1,price:0});document.getElementById('lineItems').innerHTML=renderLines();refreshTotal();}
+function remLine(i){invLineItems.splice(i,1);document.getElementById('lineItems').innerHTML=renderLines();refreshTotal();}
+function updLine(i,f,val){invLineItems[i][f]=val;refreshTotal();}
+function calcTotal(){return invLineItems.reduce((s,it)=>s+(Number(it.qty)||1)*(Number(it.price)||0),0);}
+function refreshTotal(){const el=document.getElementById('invTotal');if(el)el.textContent=fmt(calcTotal());}
+async function saveInvoice(){
+  if(!v('inv_client')){alert('Select a client.');return;}
+  const total=calcTotal();
+  if(total===0&&!confirm('Invoice total is $0. Save anyway?'))return;
+  const paid=Number(v('inv_paid'))||0;
+  if(paid>total&&!confirm(`Paid amount exceeds total. Continue?`))return;
+  const invs=Cache.get('invoices');
+  let status=v('inv_status')||'Unpaid';if(paid>=total&&total>0)status='Paid';else if(paid>0)status='Partial';
+  const existing=editingId?invs.find(i=>i.id===editingId):{};
+  const obj={id:editingId||uid(),inv_number:v('inv_num'),date:v('inv_date'),due_date:v('inv_due'),client_id:v('inv_client'),items:invLineItems,total,paid,status,notes:v('inv_notes'),created_at:existing.created_at||new Date().toISOString(),updated_at:new Date().toISOString()};
+  if(editingId){const i=invs.findIndex(inv=>inv.id===editingId);if(i>-1)invs[i]=obj;else invs.push(obj);}else invs.push(obj);
+  Cache.set('invoices',invs);
+  closeModal();navigate('invoices');
+  await DB.set('invoices',obj);
+}
+async function delInvoice(id){
+  if(!confirm('Delete invoice?'))return;
+  const invs=Cache.get('invoices').filter(i=>i.id!==id);
+  Cache.set('invoices',invs);
+  closeModal();navigate('invoices');
+  await DB.delete('invoices',id);
+}
+function buildInvMsg(inv,c,biz){const o=Number(inv.total)-Number(inv.paid||0);const lines=(inv.items||[]).map(it=>`  • ${it.desc||'Item'} ×${it.qty||1}: ${fmt((it.qty||1)*(it.price||0))}`).join('\n');return`*${biz.name||'ServiceDesk'}*\n\n📄 *Invoice INV-${inv.inv_number}*\nClient: ${c?c.name:'—'}\nDate: ${fmtDate(inv.date)}  |  Due: ${fmtDate(inv.due_date)}\n\n${lines}\n\n*Total: ${fmt(inv.total)}*\nPaid: ${fmt(inv.paid||0)}\n*Balance Due: ${fmt(o)}*\n\n${inv.notes||''}\n\n_Sent via ServiceDesk_`;}
+async function openInvoiceDetail(id){
+  const invs=Cache.get('invoices');
+  const inv=invs.find(i=>i.id===id);if(!inv)return;
+  const c=Cache.get('clients').find(cl=>cl.id===inv.client_id);
+  const biz=DB.getBiz();
+  const o=Number(inv.total)-Number(inv.paid||0);
+  const td=todayLocal();
+  const ov=inv.due_date&&inv.due_date<td&&inv.status!=='Paid';
+  const waMsg=buildInvMsg(inv,c,biz);
+  showModal(`<div class="modal-title">INV-${esc(inv.inv_number)}</div>
+    <span class="badge badge-${ov?'overdue':iClass(inv.status)}" style="margin-bottom:12px;display:inline-block">${ov?'⚠️ OVERDUE':esc(inv.status)}</span>
+    <div class="card">
+      <div class="detail-row"><span class="detail-label">Client</span><span class="detail-value">${esc(c?c.name:'—')}</span></div>
+      <div class="detail-row"><span class="detail-label">Invoice Date</span><span class="detail-value">${fmtDate(inv.date)}</span></div>
+      <div class="detail-row"><span class="detail-label">Due Date</span><span class="detail-value">${fmtDate(inv.due_date)}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Items</div>
+      ${inv.items&&inv.items.length?inv.items.map(it=>`<div class="detail-row"><span>${esc(it.desc||'Item')} ×${it.qty||1}</span><span style="color:var(--accent)">${fmt((it.qty||1)*(it.price||0))}</span></div>`).join(''):'<div style="color:var(--muted);font-size:13px">No items.</div>'}
+      <div style="height:1px;background:var(--border);margin:8px 0"></div>
+      <div class="detail-row"><span style="font-weight:700">Total</span><span style="color:var(--accent);font-weight:700">${fmt(inv.total)}</span></div>
+      <div class="detail-row"><span class="detail-label">Paid</span><span style="color:var(--success)">${fmt(inv.paid||0)}</span></div>
+      ${inv.status!=='Paid'?`<div class="detail-row"><span class="detail-label">Balance Due</span><span style="color:var(--danger);font-weight:700">${fmt(o)}</span></div>`:'<div style="color:var(--success);padding:8px 0;font-size:13px">✅ Fully Paid</div>'}
+    </div>
+    ${inv.notes?`<div class="card"><div class="card-title">Payment Instructions</div><div style="font-size:13px;color:var(--muted);line-height:1.5">${esc(inv.notes)}</div></div>`:''}
+    <div class="card">
+      <div class="card-title">Record Payment</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" type="number" id="payAmt" placeholder="Amount received" style="flex:1" />
+        <button class="btn btn-primary btn-sm" onclick="applyPayment('${id}')">Apply</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📤 Share via WhatsApp</div>
+      <div class="wa-box"><pre>${esc(waMsg)}</pre><button class="wa-btn" onclick="openWA('${id}','inv')">📱 Send to Client</button></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🖨 PDF Invoice</div>
+      <button class="btn btn-primary btn-full" onclick="generateInvoicePDF('${id}')">📄 Download / Print Invoice</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal();openInvoiceModal('${id}')">✏️ Edit</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+    </div>`);
+}
+async function applyPayment(id){
+  const amt=Number(document.getElementById('payAmt').value);if(!amt||amt<=0){alert('Enter a valid amount.');return;}
+  const invs=Cache.get('invoices');const i=invs.findIndex(inv=>inv.id===id);if(i===-1)return;
+  const inv=invs[i];
+  const newPaid=(Number(inv.paid)||0)+amt;
+  if(newPaid>Number(inv.total)&&!confirm('Payment exceeds balance. Continue?'))return;
+  inv.paid=newPaid;inv.status=inv.paid>=inv.total?'Paid':'Partial';inv.updated_at=new Date().toISOString();
+  Cache.set('invoices',invs);
+  closeModal();openInvoiceDetail(id);
+  await DB.set('invoices',inv);
+  toast('Payment recorded!');
+}
+
+// ═══════════════════════════════════════════════
+//  EXPENSES
+// ═══════════════════════════════════════════════
+async function renderExpenses(){
+  const exps=[...await DB.get('expenses')].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const total=exps.reduce((s,e)=>s+Number(e.amount||0),0);
+  return`<div class="page-header"><div class="page-title">Expenses</div><div class="page-sub">${exps.length} entries · Total: <strong style="color:var(--danger)">${fmt(total)}</strong></div></div>
+  <div id="expList">${exps.length?exps.map(eCard).join(''):emptyState('💸','No expenses yet. Tap + to add.')}</div>`;
+}
+function eCard(e){return`<div class="list-item" onclick="openExpenseModal('${e.id}')">
+  <div class="list-item-header"><span class="list-item-title">${esc(e.description)}</span><span style="color:var(--danger);font-weight:700;font-size:14px">${fmt(e.amount)}</span></div>
+  <div class="list-item-sub">${esc(e.category||'General')} · ${fmtDate(e.date)}</div>
+</div>`;}
+function openExpenseModal(id=null){
+  editingId=id;
+  const exps=Cache.get('expenses');
+  const e=id?exps.find(ex=>ex.id===id):{};
+  const cats=['Fuel','Parts','Tools','Labour','Rent','Utilities','Marketing','Insurance','Other'];
+  showModal(`<div class="modal-title">${id?'Edit Expense':'New Expense'}</div>
+    <div class="form-group"><label class="form-label">Description *</label><input class="form-input" id="e_desc" value="${esc(e.description||'')}" placeholder="e.g. Fuel for van" /></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Amount *</label><input class="form-input" id="e_amount" type="number" value="${e.amount||''}" placeholder="0.00" /></div>
+      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="e_date" type="date" value="${e.date||today()}" /></div>
+    </div>
+    <div class="form-group"><label class="form-label">Category</label>
+      <select class="form-select" id="e_cat">
+        ${cats.map(c=>`<option ${e.category===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="e_notes">${esc(e.notes||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveExpense()">${id?'Save':'Add Expense'}</button>
+      ${id?`<button class="btn btn-danger btn-sm" onclick="delExpense('${id}')">Delete</button>`:''}
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+async function saveExpense(){
+  const desc=document.getElementById('e_desc').value.trim();if(!desc){alert('Description required.');return;}
+  const amount=Number(v('e_amount'));if(!amount){alert('Enter an amount.');return;}
+  const exps=Cache.get('expenses');
+  const existing=editingId?exps.find(e=>e.id===editingId):{};
+  const obj={id:editingId||uid(),description:desc,amount,date:v('e_date')||today(),category:v('e_cat')||'Other',notes:v('e_notes'),created_by:currentUser?.id||null,created_at:existing.created_at||new Date().toISOString(),updated_at:new Date().toISOString()};
+  if(editingId){const i=exps.findIndex(e=>e.id===editingId);if(i>-1)exps[i]=obj;else exps.push(obj);}else exps.push(obj);
+  Cache.set('expenses',exps);
+  closeModal();navigate('expenses');
+  await DB.set('expenses',obj);
+}
+async function delExpense(id){
+  if(!confirm('Delete this expense?'))return;
+  const exps=Cache.get('expenses').filter(e=>e.id!==id);
+  Cache.set('expenses',exps);
+  closeModal();navigate('expenses');
+  await DB.delete('expenses',id);
+}
+
+// ═══════════════════════════════════════════════
+//  REPORTS
+// ═══════════════════════════════════════════════
+async function renderReports(){
+  const [invs,jobs,clients,exps]=await Promise.all([DB.get('invoices'),DB.get('jobs'),DB.get('clients'),DB.get('expenses')]);
+  const td=todayLocal();
+  const activeClients=clients.filter(c=>!c.archived);
+  const months=[];for(let i=5;i>=0;i--){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-i);months.push({key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,label:d.toLocaleDateString('en-US',{month:'short',year:'2-digit'})});}
+  const revByMonth=months.map(({key,label})=>({m:label,rev:invs.filter(i=>i.status==='Paid'&&(i.date||'').startsWith(key)).reduce((s,i)=>s+Number(i.total),0),exp:exps.filter(e=>(e.date||'').startsWith(key)).reduce((s,e)=>s+Number(e.amount||0),0)}));
+  const maxBar=Math.max(...revByMonth.map(r=>Math.max(r.rev,r.exp)),1);
+  const outstanding=invs.filter(i=>i.status!=='Paid').reduce((s,i)=>s+(Number(i.total)-Number(i.paid||0)),0);
+  const collected=invs.filter(i=>i.status==='Paid').reduce((s,i)=>s+Number(i.total),0);
+  const totalExp=exps.reduce((s,e)=>s+Number(e.amount||0),0);
+  const profit=collected-totalExp;
+  const overdue=invs.filter(i=>i.due_date&&i.due_date<td&&i.status!=='Paid');
+  const age=(inv)=>Math.floor((new Date(td)-new Date(inv.due_date+'T12:00:00'))/(1000*60*60*24));
+  const clientRev=activeClients.map(c=>{const total=invs.filter(i=>i.client_id===c.id&&i.status==='Paid').reduce((s,i)=>s+Number(i.total),0);return{name:c.name,total};}).sort((a,b)=>b.total-a.total).slice(0,5);
+  const statusCounts={Pending:0,'In Progress':0,Completed:0,Cancelled:0};
+  jobs.forEach(j=>{if(statusCounts[j.status]!==undefined)statusCounts[j.status]++;});
+  const catTotals={};exps.forEach(e=>{const cat=e.category||'Other';catTotals[cat]=(catTotals[cat]||0)+Number(e.amount||0);});
+  const catSorted=Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+  return`<div class="page-header"><div class="page-title">Reports</div><div class="page-sub">Business overview</div></div>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-value cg" style="font-size:17px">${fmt(collected)}</div><div class="stat-label">Total Collected</div></div>
+    <div class="stat-card"><div class="stat-value cr" style="font-size:17px">${fmt(outstanding)}</div><div class="stat-label">Outstanding</div></div>
+    <div class="stat-card"><div class="stat-value cr" style="font-size:17px">${fmt(totalExp)}</div><div class="stat-label">Total Expenses</div></div>
+    <div class="stat-card"><div class="stat-value ${profit>=0?'cg':'cr'}" style="font-size:17px">${fmt(profit)}</div><div class="stat-label">Net Profit</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Revenue vs Expenses (Last 6 Months)</div>
+    ${revByMonth.map(r=>`<div class="month-bar-wrap">
+      <div style="display:flex;justify-content:space-between;font-size:12px"><span>${r.m}</span><span style="color:var(--success)">${fmt(r.rev)}</span></div>
+      <div class="month-bar" style="margin-bottom:3px"><div class="month-bar-fill" style="width:${(r.rev/maxBar*100).toFixed(1)}%"></div></div>
+      <div class="month-bar" style="background:rgba(239,68,68,.15)"><div style="height:100%;border-radius:4px;background:var(--danger);width:${(r.exp/maxBar*100).toFixed(1)}%"></div></div>
+      <div style="font-size:10px;color:var(--danger);text-align:right;margin-top:2px">Exp: ${fmt(r.exp)}</div>
+    </div>`).join('')}
+  </div>
+  <div class="card"><div class="card-title">Expenses by Category</div>${catSorted.length?catSorted.map(([cat,amt])=>`<div class="report-row"><span>${esc(cat)}</span><span style="color:var(--danger);font-weight:600">${fmt(amt)}</span></div>`).join(''):emptyState('💸','No expenses yet.')}</div>
+  <div class="card"><div class="card-title">Overdue Invoices (${overdue.length})</div>${overdue.length?overdue.map(inv=>{const c=activeClients.find(cl=>cl.id===inv.client_id);const o=Number(inv.total)-Number(inv.paid||0);return`<div class="report-row"><span>${esc(c?c.name:'—')} · INV-${esc(inv.inv_number)}<br><small style="color:var(--danger)">${age(inv)} days overdue</small></span><span style="color:var(--danger);font-weight:700">${fmt(o)}</span></div>`;}).join(''):'<div style="color:var(--success);font-size:13px;padding:8px 0">✅ No overdue invoices!</div>'}</div>
+  <div class="card"><div class="card-title">Top Clients by Revenue</div>${clientRev.length?clientRev.map(cr=>`<div class="report-row"><span>${esc(cr.name)}</span><span style="color:var(--accent);font-weight:600">${fmt(cr.total)}</span></div>`).join(''):emptyState('👥','No paid invoices yet.')}</div>
+  <div class="card"><div class="card-title">Jobs by Status</div>${Object.entries(statusCounts).map(([s,n])=>`<div class="report-row"><span>${s}</span><span class="badge badge-${sClass(s)}">${n}</span></div>`).join('')}</div>`;
+}
+
+// ═══════════════════════════════════════════════
+//  TEAM MANAGEMENT
+// ═══════════════════════════════════════════════
+async function renderTeam(){
+  const members=await getTeamMembers();
+  const isAdmin=currentUser?.role==='admin';
+  return`<div class="page-header"><div class="page-title">Team</div><div class="page-sub">${members.length} member${members.length!==1?'s':''} · Logged in as <strong style="color:var(--accent)">${esc(currentUser?.name||'')}</strong></div></div>
+  ${members.map(m=>`<div class="list-item">
+    <div class="list-item-header">
+      <span class="list-item-title">${esc(m.name)}</span>
+      <span class="badge badge-${m.role==='admin'?'progress':'done'}">${esc(m.role)}</span>
+    </div>
+    <div class="list-item-sub">PIN: ****${isAdmin&&m.id===currentUser?.id?' (you)':''}</div>
+    ${isAdmin?`<div class="list-item-meta" style="margin-top:8px">
+      ${m.id!==currentUser?.id?`<button class="btn btn-sm btn-secondary" onclick="openEditMemberModal('${m.id}')">✏️ Edit PIN</button>`:'<span style="font-size:11px;color:var(--muted)">That\'s you</span>'}
+      ${m.id!==currentUser?.id?`<button class="btn btn-sm btn-danger" onclick="removeMember('${m.id}')">🗑 Remove</button>`:''}
+    </div>`:''}
+  </div>`).join('')}
+  ${isAdmin?`<div class="card" style="margin-top:16px">
+    <div class="card-title">Add Team Member</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Each person gets their own name and PIN. Everyone shares the same data.</p>
+    <button class="btn btn-primary btn-full" onclick="openCreateMemberModal()">+ Add Member</button>
+  </div>`:`<div class="alert alert-info" style="margin-top:10px">Only admins can add or remove team members.</div>`}`;
+}
+function openCreateMemberModal(isFirstSetup=false){
+  showModal(`<div class="modal-title">${isFirstSetup?'⚙ Set Up Your Team':'Add Team Member'}</div>
+    ${isFirstSetup?`<div class="alert alert-info" style="margin-bottom:12px">This is the first account — they will be an <strong>admin</strong>.</div>`:''}
+    <div class="form-group"><label class="form-label">Full Name *</label><input class="form-input" id="tm_name" placeholder="e.g. Joshua" /></div>
+    <div class="form-group"><label class="form-label">4-Digit PIN *</label><input class="form-input" id="tm_pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    <div class="form-group"><label class="form-label">Confirm PIN *</label><input class="form-input" id="tm_pin2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    ${!isFirstSetup?`<div class="form-group"><label class="form-label">Role</label>
+      <select class="form-select" id="tm_role">
+        <option value="member">Member</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>`:''}
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="createMember('${isFirstSetup}')">Create Account</button>
+      ${!isFirstSetup?`<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>`:''}
+    </div>`,isFirstSetup===true||isFirstSetup==='true');
+}
+async function createMember(isFirstSetup=false){
+  const name=document.getElementById('tm_name').value.trim();
+  const pin=document.getElementById('tm_pin').value;
+  const pin2=document.getElementById('tm_pin2').value;
+  if(!name){alert('Name required.');return;}
+  if(!/^\d{4}$/.test(pin)){alert('PIN must be exactly 4 digits.');return;}
+  if(pin!==pin2){alert('PINs do not match.');return;}
+  const setup=(isFirstSetup===true||isFirstSetup==='true');
+  const role=setup?'admin':(document.getElementById('tm_role')?.value||'member');
+  const pinHash=await hPin(pin);
+  const obj={id:uid(),name,role,pin_hash:pinHash,created_at:new Date().toISOString()};
+  // Always save to local cache first so login works even if Supabase fails
+  const members=Cache.get('team_members');members.push(obj);Cache.set('team_members',members);
+  // Try to save to Supabase but don't block on failure
+  if(isOnline){
+    setSyncStatus('syncing','Saving…');
+    try{
+      const {error}=await sb.from('team_members').insert(obj);
+      if(error)throw error;
+      setSyncStatus('online','Live');
+    }catch(e){
+      console.warn('Could not save member to cloud:',e);
+      setSyncStatus('offline','Saved locally');
+      syncQueue.push({table:'team_members',row:obj});
+    }
+  }
+  // Close modal and log in
+  closeModal();
+  if(setup){
+    currentUser={id:obj.id,name:obj.name,role:obj.role};
+    document.getElementById('lockScreen').style.display='none';
+    document.getElementById('mainApp').classList.remove('hidden');
+    navigate('dashboard');
+    toast(`Welcome, ${name}! Set up your business in Settings.`);
+  }else{
+    navigate('team');
+    toast(`${name} added!`);
+  }
+}
+function openEditMemberModal(id){
+  const members=Cache.get('team_members');
+  const m=members.find(mb=>mb.id===id);if(!m)return;
+  showModal(`<div class="modal-title">Edit PIN — ${esc(m.name)}</div>
+    <div class="form-group"><label class="form-label">New PIN (4 digits) *</label><input class="form-input" id="tm_newpin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    <div class="form-group"><label class="form-label">Confirm PIN *</label><input class="form-input" id="tm_newpin2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" /></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="doUpdatePin('${id}')">Update PIN</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+async function doUpdatePin(id){
+  const pin=document.getElementById('tm_newpin').value;
+  const pin2=document.getElementById('tm_newpin2').value;
+  if(!/^\d{4}$/.test(pin)){alert('PIN must be 4 digits.');return;}
+  if(pin!==pin2){alert('PINs do not match.');return;}
+  const pinHash=await hPin(pin);
+  const members=Cache.get('team_members');const i=members.findIndex(m=>m.id===id);
+  if(i>-1){members[i].pin_hash=pinHash;Cache.set('team_members',members);}
+  try{await sb.from('team_members').update({pin_hash:pinHash}).eq('id',id);}catch(e){console.warn(e);}
+  closeModal();navigate('team');toast('PIN updated!');
+}
+async function removeMember(id){
+  if(!confirm('Remove this team member? They will no longer be able to log in.'))return;
+  const members=Cache.get('team_members').filter(m=>m.id!==id);
+  Cache.set('team_members',members);
+  try{await sb.from('team_members').delete().eq('id',id);}catch(e){console.warn(e);}
+  navigate('team');toast('Member removed.');
+}
+
+// ═══════════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════════
+function renderSettings(){
+  const biz=DB.getBiz();
+  return`<div class="page-header"><div class="page-title">Settings</div><div class="page-sub">Business & Sync</div></div>
+  <div class="card">
+    <div class="card-title">Business Details</div>
+    <div class="form-group"><label class="form-label">Business Name</label><input class="form-input" id="biz_name" value="${esc(biz.name||'')}" placeholder="My Plumbing Co." /></div>
+    <div class="form-group"><label class="form-label">Owner Name</label><input class="form-input" id="biz_owner" value="${esc(biz.owner||'')}" /></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="biz_phone" value="${esc(biz.phone||'')}" /></div>
+      <div class="form-group"><label class="form-label">WhatsApp #</label><input class="form-input" id="biz_wa" value="${esc(biz.wa||'')}" placeholder="+18765550000" /></div>
+    </div>
+    <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="biz_email" value="${esc(biz.email||'')}" /></div>
+    <div class="form-group"><label class="form-label">Address</label><input class="form-input" id="biz_address" value="${esc(biz.address||'')}" /></div>
+    <div class="form-group"><label class="form-label">Currency Symbol</label><input class="form-input" id="biz_currency" value="${esc(biz.currency||'JMD $')}" placeholder="JMD $" /></div>
+    <div class="form-group"><label class="form-label">Default Payment Instructions</label><textarea class="form-textarea" id="biz_payment">${esc(biz.payment||'')}</textarea></div>
+    <button class="btn btn-primary btn-full" onclick="saveBiz()">Save Business Profile</button>
+  </div>
+  <div class="card">
+    <div class="card-title">☁️ Cloud Sync Status</div>
+    <div class="detail-row"><span class="detail-label">Status</span><span class="detail-value" style="display:flex;align-items:center;gap:6px"><span class="sync-dot ${isOnline?'online':'offline'}"></span>${isOnline?'Connected — data syncing live':'Offline — changes queued'}</span></div>
+    <div class="detail-row"><span class="detail-label">Database</span><span class="detail-value">Supabase PostgreSQL</span></div>
+    <div class="detail-row"><span class="detail-label">Storage</span><span class="detail-value" style="color:var(--success)">Unlimited (cloud)</span></div>
+    ${syncQueue.length?`<div class="alert alert-warn" style="margin-top:10px">⏳ ${syncQueue.length} change(s) waiting to sync. Connect to internet to upload.</div>`:''}
+    <button class="btn btn-secondary btn-full" style="margin-top:10px" onclick="forceSyncAll()">🔄 Force Full Sync</button>
+  </div>
+  <div class="card">
+    <div class="card-title">💾 Local Backup</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Your data is stored in the cloud. Export a backup as extra insurance.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="btn btn-primary btn-full" onclick="exportData()">💾 Export JSON Backup</button>
+      <button class="btn btn-secondary btn-full" onclick="triggerImport()">📂 Restore from Backup</button>
+      <input type="file" id="importFile" accept=".json" class="hidden" onchange="importData(event)" />
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">⚠️ Danger Zone</div>
+    <button class="btn btn-danger btn-full" onclick="clearAllCloud()">🗑 Clear ALL Data (irreversible)</button>
+  </div>
+  <div class="card" style="text-align:center">
+    <div style="font-family:var(--font-display);font-size:18px;font-weight:800;color:var(--accent)">⚙ ServiceDesk</div>
+    <div style="color:var(--muted);font-size:12px;margin-top:4px">Cloud-Sync Business Manager v2.0</div>
+    <div style="color:var(--muted);font-size:11px;margin-top:2px">Powered by Supabase</div>
+  </div>`;
+}
+async function saveBiz(){
+  const b={name:v('biz_name'),owner:v('biz_owner'),phone:v('biz_phone'),wa:v('biz_wa'),email:v('biz_email'),address:v('biz_address'),currency:v('biz_currency')||'JMD $',payment:v('biz_payment')};
+  await DB.setBiz(b);
+  toast('Business profile saved!');renderPage();
+}
+async function forceSyncAll(){
+  if(!isOnline){toast('No internet connection.','warn');return;}
+  setSyncStatus('syncing','Syncing all…');
+  toast('Syncing all data…');
+  try{
+    const tables=['clients','jobs','invoices','expenses'];
+    for(const t of tables){
+      const {data}=await sb.from(t).select('*').order('created_at',{ascending:false});
+      if(data)Cache.set(t,data);
+    }
+    const members=await getTeamMembers();
+    Cache.set('team_members',members);
+    await DB.loadBizFromCloud();
+    setSyncStatus('online','Live');
+    toast('All data synced!');
+    renderPage();
+  }catch(e){
+    setSyncStatus('offline','Offline');
+    toast('Sync failed — check connection.','warn');
+  }
+}
+function exportData(){
+  const data={exportDate:new Date().toISOString(),version:'2.0',business:DB.getBiz(),clients:Cache.get('clients'),jobs:Cache.get('jobs'),invoices:Cache.get('invoices'),expenses:Cache.get('expenses')};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='servicedesk-backup-'+today()+'.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  toast('Backup downloaded!');
+}
+function triggerImport(){document.getElementById('importFile').click();}
+async function importData(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async function(ev){
+    try{
+      const data=JSON.parse(ev.target.result);
+      if(!confirm(`Restore backup from ${new Date(data.exportDate).toLocaleDateString()}? This will overwrite cloud data for all team members.`))return;
+      const tables=['clients','jobs','invoices','expenses'];
+      for(const t of tables){
+        if(data[t]&&data[t].length){
+          Cache.set(t,data[t]);
+          if(isOnline){
+            for(const row of data[t]){
+              // Migrate old field names if needed
+              if(row.clientId&&!row.client_id)row.client_id=row.clientId;
+              if(row.invNumber&&!row.inv_number)row.inv_number=row.invNumber;
+              if(row.dueDate&&!row.due_date)row.due_date=row.dueDate;
+              if(row.createdAt&&!row.created_at)row.created_at=row.createdAt;
+              if(!row.created_at)row.created_at=new Date().toISOString();
+              await sb.from(t).upsert(row,{onConflict:'id'});
+            }
+          }
+        }
+      }
+      if(data.business)await DB.setBiz(data.business);
+      toast('Data restored successfully!');navigate('dashboard');
+    }catch(err){alert('Could not parse backup: '+err.message);}
+  };
+  reader.readAsText(file);e.target.value='';
+}
+async function clearAllCloud(){
+  if(!confirm('⚠️ This will permanently delete ALL data from the cloud for EVERY team member. This cannot be undone.'))return;
+  if(!confirm('Last chance — type YES below would be a safer prompt, but continuing means all data is gone.'))return;
+  const tables=['clients','jobs','invoices','expenses'];
+  for(const t of tables){
+    Cache.set(t,[]);
+    if(isOnline)try{await sb.from(t).delete().neq('id','__no_match__');}catch{}
+  }
+  toast('All data cleared.','warn');navigate('dashboard');
+}
+
+// ═══════════════════════════════════════════════
+//  PDF — Invoice & Statement
+// ═══════════════════════════════════════════════
+function generateInvoicePDF(id){
+  const inv=Cache.get('invoices').find(i=>i.id===id);if(!inv)return;
+  const c=Cache.get('clients').find(cl=>cl.id===inv.client_id);
+  const biz=DB.getBiz();const o=Number(inv.total)-Number(inv.paid||0);
+  const isPaid=inv.status==='Paid';const currency=biz.currency||'JMD $';
+  const rows=(inv.items||[]).map(it=>{const sub=(Number(it.qty)||1)*(Number(it.price)||0);return`<tr><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;font-size:13px">${it.desc||'Item'}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:center;font-size:13px">${it.qty||1}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:right;font-size:13px">${currency} ${Number(it.price||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:right;font-size:13px;font-weight:600">${currency} ${sub.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>`;}).join('');
+  const stamp=isPaid?`<div style="position:absolute;top:40px;right:40px;border:4px solid #16a34a;border-radius:8px;padding:8px 18px;transform:rotate(-15deg);opacity:.85"><div style="font-size:22px;font-weight:900;color:#16a34a;letter-spacing:2px">PAID</div></div>`:(inv.due_date&&inv.due_date<todayLocal()?`<div style="position:absolute;top:40px;right:40px;border:4px solid #dc2626;border-radius:8px;padding:8px 14px;transform:rotate(-15deg);opacity:.85"><div style="font-size:18px;font-weight:900;color:#dc2626;letter-spacing:2px">OVERDUE</div></div>`:'');
+  const thankYou=isPaid?`<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px 20px;margin-top:24px;text-align:center"><div style="font-size:28px;margin-bottom:6px">🙏</div><div style="font-size:16px;font-weight:700;color:#15803d;margin-bottom:4px">Thank You for Your Payment!</div><div style="font-size:13px;color:#166534">Your account is fully settled. We appreciate your business.</div></div>`:(inv.notes?`<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin-top:20px"><div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Payment Instructions</div><div style="font-size:13px;color:#78350f;line-height:1.6">${inv.notes.replace(/\n/g,'<br>')}</div></div>`:'');
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Invoice INV-${inv.inv_number}</title>
+  <style>@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}body{font-family:'DM Sans',sans-serif;background:#f5f5f4;color:#1c1917;padding:32px 16px;}
+  .page{background:#fff;max-width:640px;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.12);position:relative;}
+  .header{background:#0d0f12;padding:32px 36px;display:flex;justify-content:space-between;align-items:flex-start;}
+  .biz-name{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#f0c040;margin-bottom:4px;}
+  .biz-detail{font-size:12px;color:#9ca3af;line-height:1.6;}
+  .inv-label{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;color:#6b7894;letter-spacing:1px;text-transform:uppercase;text-align:right;}
+  .inv-num{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#f0c040;text-align:right;}
+  .client-bar{padding:20px 36px;background:#f9f9f8;border-bottom:1px solid #e8e8e8;display:flex;justify-content:space-between;align-items:center;}
+  .client-name{font-size:18px;font-weight:700;color:#0d0f12;}
+  table{width:100%;border-collapse:collapse;}
+  thead th{background:#f5f5f4;padding:10px 12px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;text-align:left;}
+  thead th:nth-child(2){text-align:center;}thead th:nth-child(3),thead th:nth-child(4){text-align:right;}
+  .table-wrap{padding:0 24px 16px;}
+  .totals{padding:16px 36px;background:#f9f9f8;border-top:1px solid #e8e8e8;}
+  .total-row{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;}
+  .total-final{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;border-top:2px solid #f0c040;margin-top:4px;padding-top:8px;}
+  .footer{background:#f9f9f8;padding:16px 36px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e8e8e8;}
+  @media print{body{padding:0;background:#fff;}.page{box-shadow:none;border-radius:0;}}</style></head><body>
+  <div class="page">${stamp}
+    <div class="header"><div><div class="biz-name">${biz.name||'My Business'}</div><div class="biz-detail">${[biz.owner,biz.phone,biz.email,biz.address].filter(Boolean).join(' · ')}</div></div><div><div class="inv-label">Invoice</div><div class="inv-num">INV-${inv.inv_number}</div></div></div>
+    <div class="client-bar"><div><div class="inv-label" style="text-align:left">Bill To</div><div class="client-name">${c?c.name:'—'}</div>${c&&c.phone?`<div style="font-size:12px;color:#6b7280">${c.phone}</div>`:''}</div><div style="text-align:right"><div class="inv-label">Date</div><div style="font-size:13px;font-weight:600">${new Date(inv.date+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>${inv.due_date?`<div class="inv-label" style="margin-top:8px">Due Date</div><div style="font-size:13px;font-weight:600;color:${inv.due_date<todayLocal()&&!isPaid?'#dc2626':'#0d0f12'}">${new Date(inv.due_date+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>`:''}</div></div>
+    <div class="table-wrap" style="padding-top:8px"><table><thead><tr><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows||'<tr><td colspan="4" style="padding:20px;text-align:center;color:#9ca3af">No items</td></tr>'}</tbody></table></div>
+    <div class="totals"><div class="total-row"><span>Subtotal</span><span>${currency} ${Number(inv.total).toLocaleString('en-US',{minimumFractionDigits:2})}</span></div><div class="total-row"><span style="color:#16a34a">Paid</span><span style="color:#16a34a">${currency} ${Number(inv.paid||0).toLocaleString('en-US',{minimumFractionDigits:2})}</span></div><div class="total-row total-final"><span>Balance Due</span><span style="color:${o>0?'#dc2626':'#16a34a'}">${currency} ${o.toLocaleString('en-US',{minimumFractionDigits:2})}</span></div></div>
+    ${thankYou}
+    <div class="footer">Generated by ServiceDesk &nbsp;·&nbsp; ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+  </div>
+  <div style="text-align:center;margin-top:20px"><button onclick="window.print()" style="background:#f0c040;color:#0d0f12;border:none;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">🖨 Print / Save as PDF</button></div>
+  </body></html>`;
+  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
+}
+
+async function generateClientStatement(clientId){
+  const c=Cache.get('clients').find(cl=>cl.id===clientId);if(!c)return;
+  const biz=DB.getBiz();
+  const invs=Cache.get('invoices').filter(i=>i.client_id===clientId).sort((a,b)=>a.date.localeCompare(b.date));
+  const totalBilled=invs.reduce((s,i)=>s+Number(i.total),0);
+  const totalPaid=invs.reduce((s,i)=>s+Number(i.paid||0),0);
+  const balance=totalBilled-totalPaid;
+  const currency=biz.currency||'JMD $';
+  const rows=invs.map(i=>{const o=Number(i.total)-Number(i.paid||0);const ov=i.due_date&&i.due_date<todayLocal()&&i.status!=='Paid';return`<tr><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;font-size:13px">INV-${i.inv_number}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;font-size:13px">${new Date(i.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:right;font-size:13px">${currency} ${Number(i.total).toLocaleString('en-US',{minimumFractionDigits:2})}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:right;font-size:13px;color:#16a34a">${currency} ${Number(i.paid||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:right;font-size:13px;font-weight:600;color:${ov?'#dc2626':o>0?'#d97706':'#16a34a'}">${currency} ${o.toLocaleString('en-US',{minimumFractionDigits:2})}</td><td style="padding:10px 12px;border-bottom:1px solid #e8e8e8;text-align:center;font-size:12px"><span style="background:${i.status==='Paid'?'#dcfce7':ov?'#fee2e2':'#fef3c7'};color:${i.status==='Paid'?'#16a34a':ov?'#dc2626':'#d97706'};padding:2px 8px;border-radius:10px;font-weight:600">${ov?'Overdue':i.status}</span></td></tr>`;}).join('');
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Statement — ${c.name}</title>
+  <style>@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}body{font-family:'DM Sans',sans-serif;background:#f5f5f4;color:#1c1917;padding:32px 16px;}
+  .page{background:#fff;max-width:700px;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.12);}
+  .header{background:#0d0f12;padding:28px 36px;display:flex;justify-content:space-between;align-items:flex-start;}
+  .biz-name{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#f0c040;margin-bottom:4px;}
+  .biz-detail{font-size:12px;color:#9ca3af;line-height:1.6;}
+  table{width:100%;border-collapse:collapse;}
+  thead th{background:#f5f5f4;padding:10px 12px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;text-align:left;}
+  .table-wrap{padding:0 24px 16px;}
+  .summary{padding:20px 36px;border-top:2px solid #f0c040;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+  .sum-item{text-align:center;}.sum-label{font-size:11px;color:#9ca3af;text-transform:uppercase;font-weight:700;margin-bottom:4px;}
+  .sum-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;}
+  .footer{background:#f9f9f8;padding:16px 36px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e8e8e8;}
+  @media print{body{padding:0;background:#fff;}.page{box-shadow:none;border-radius:0;}}</style></head><body>
+  <div class="page">
+    <div class="header"><div><div class="biz-name">${biz.name||'My Business'}</div><div class="biz-detail">${[biz.owner,biz.phone,biz.email].filter(Boolean).join(' · ')}</div></div><div style="text-align:right"><div style="font-size:11px;font-weight:700;color:#6b7894;letter-spacing:1px;text-transform:uppercase">Account Statement</div><div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#f0c040">Statement</div></div></div>
+    <div style="padding:20px 36px;background:#f9f9f8;border-bottom:1px solid #e8e8e8;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:11px;font-weight:700;color:#6b7894;text-transform:uppercase;letter-spacing:1px">Prepared For</div><div style="font-size:18px;font-weight:700;color:#0d0f12">${c.name}</div>${c.phone?`<div style="font-size:12px;color:#6b7280">${c.phone}</div>`:''}</div><div style="text-align:right"><div style="font-size:11px;font-weight:700;color:#6b7894;text-transform:uppercase;letter-spacing:1px">As of</div><div style="font-size:14px;font-weight:600">${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div></div></div>
+    <div class="table-wrap" style="padding-top:8px"><table><thead><tr><th>Invoice</th><th>Date</th><th style="text-align:right">Billed</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th><th style="text-align:center">Status</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="padding:20px;text-align:center;color:#9ca3af">No invoices found</td></tr>'}</tbody></table></div>
+    <div class="summary"><div class="sum-item"><div class="sum-label">Total Billed</div><div class="sum-val">${currency} ${totalBilled.toLocaleString('en-US',{minimumFractionDigits:2})}</div></div><div class="sum-item"><div class="sum-label">Total Paid</div><div class="sum-val" style="color:#16a34a">${currency} ${totalPaid.toLocaleString('en-US',{minimumFractionDigits:2})}</div></div><div class="sum-item"><div class="sum-label">Balance Due</div><div class="sum-val" style="color:${balance>0?'#dc2626':'#16a34a'}">${currency} ${balance.toLocaleString('en-US',{minimumFractionDigits:2})}</div></div></div>
+    <div class="footer">Generated by ServiceDesk &nbsp;·&nbsp; ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+  </div>
+  <div style="text-align:center;margin-top:20px"><button onclick="window.print()" style="background:#f0c040;color:#0d0f12;border:none;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">🖨 Print / Save as PDF</button></div>
+  </body></html>`;
+  const w=window.open('','_blank');if(w){w.document.write(html);w.document.close();}
+}
+
+// ═══════════════════════════════════════════════
+//  PWA + SERVICE WORKER
+// ═══════════════════════════════════════════════
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js')
+      .then(r=>console.log('SW registered'))
+      .catch(e=>console.warn('SW failed:',e));
+  });
+}
+
+let _deferredInstall=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();_deferredInstall=e;
+  setTimeout(()=>{if(_deferredInstall&&!window.matchMedia('(display-mode: standalone)').matches)showInstallBanner();},3000);
+});
+function showInstallBanner(){
+  if(document.getElementById('installBanner'))return;
+  const b=document.createElement('div');b.id='installBanner';
+  b.style.cssText='position:fixed;bottom:68px;left:12px;right:12px;z-index:150;background:#1e242d;border:1px solid #f0c040;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.4);';
+  b.innerHTML=`<span style="font-size:24px">⚙</span><div style="flex:1"><div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:#e8edf5">Install ServiceDesk</div><div style="font-size:11px;color:#6b7894;margin-top:2px">Works offline — syncs when online</div></div><button onclick="installPWA()" style="background:#f0c040;color:#0d0f12;border:none;border-radius:8px;padding:7px 14px;font-weight:700;font-size:13px;cursor:pointer">Install</button><button onclick="document.getElementById('installBanner').remove()" style="background:none;border:none;color:#6b7894;font-size:20px;cursor:pointer;padding:2px 4px">×</button>`;
+  document.body.appendChild(b);
+}
+function installPWA(){if(!_deferredInstall)return;_deferredInstall.prompt();_deferredInstall.userChoice.then(()=>{_deferredInstall=null;document.getElementById('installBanner')?.remove();});}
+window.addEventListener('appinstalled',()=>{_deferredInstall=null;document.getElementById('installBanner')?.remove();toast('ServiceDesk installed! 🎉');});
+
+// ═══════════════════════════════════════════════
+//  DEBUG HELPERS — remove after fixing
+// ═══════════════════════════════════════════════
+function refreshDebug(){
+  try{
+    const members=JSON.parse(localStorage.getItem('sd_team_members'))||[];
+    const hasSB=typeof supabase!=='undefined';
+    const setupBtn=!!document.getElementById('lockSetupMsg')?.querySelector('button');
+    const modalOpen=!!document.getElementById('modal-overlay');
+    const lines=[
+      'Online: '+(isOnline?'✅ yes':'❌ no'),
+      'Supabase loaded: '+(hasSB?'✅ yes':'❌ NO — scripts blocked!'),
+      'Members in cache: '+members.length,
+      members.length?'First member: '+members[0].name+' ('+members[0].role+')':'⚠️ No members saved',
+      members.length?'Has pin_hash: '+(!!members[0].pin_hash?'✅ yes':'❌ MISSING'):'—',
+      'Setup btn visible: '+(setupBtn?'⚠️ yes — pad is blocked':'✅ no'),
+      'Modal open: '+(modalOpen?'⚠️ yes — pad is blocked':'✅ no'),
+      'PIN buf length: '+pinBuf.length,
+      'Queued writes: '+syncQueue.length,
+    ];
+    document.getElementById('dbg').innerHTML=lines.map(l=>'<div>'+l+'</div>').join('');
+  }catch(e){
+    document.getElementById('dbg').innerHTML='<div style="color:#ef4444">JS Error: '+e.message+'</div>';
+  }
+}
+function clearAndReset(){
+  if(!confirm('Clear ALL local data and reload? You will need to set up again.'))return;
+  localStorage.clear();
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.getRegistrations().then(regs=>{
+      regs.forEach(r=>r.unregister());
+      caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))).then(()=>location.reload(true));
+    });
+  }else{location.reload(true);}
+}
+
+// ═══════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════
+initLock();
+// Auto-refresh debug panel after init
+setTimeout(refreshDebug, 1500);
+</script>
+</body>
+</html>
